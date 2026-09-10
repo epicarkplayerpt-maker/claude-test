@@ -10,7 +10,7 @@
 
 import * as THREE from 'three';
 import { ERAS, LOTS, BLOCK } from '../data/eras.js';
-import { MatLib } from './materials.js';
+import { MatLib, WIND } from './materials.js';
 import { buildLot, buildingHeight } from './buildings.js';
 import { buildStreet } from './street.js';
 import { Traffic } from './vehicles.js';
@@ -167,7 +167,7 @@ export class City {
     this.otherIdx = -1;
     this.lastUsed[idx] = ++this.tick;
 
-    if (!this.crowd) this.crowd = new Crowd(this.scene, this.sharedMats, 56);
+    if (!this.crowd) this.crowd = new Crowd(this.scene, this.sharedMats, 78);
     if (!this.flock) this.flock = new Flock(this.scene, this.sharedMats, 20);
 
     this.traffic.populate(ERAS[idx], idx, this.quality.traffic);
@@ -354,6 +354,17 @@ export class City {
         case 'billboard': {
           const m = a.mesh.material;
           m.emissiveIntensity = 1.6 + Math.sin(time * 0.6) * 0.35;
+          break;
+        }
+        case 'sway': {
+          // Soft goods read the same wind as the foliage, one octave slower,
+          // with a per-object phase so a row of awnings does not breathe in
+          // unison like a single object.
+          const w = WIND.uWindAmt.value;
+          const t = WIND.uWindTime.value + (a.seed || 0) * 9.4;
+          const g = Math.sin(t * 1.5) * 0.62 + Math.sin(t * 2.9 + 1.3) * 0.38;
+          a.mesh.rotation.x = g * w * (a.amp ?? 0.14) * 6.0;
+          a.mesh.rotation.z = g * w * (a.amp ?? 0.14) * 1.6;
           break;
         }
         case 'fan': case 'dronePad': case 'pylon': case 'mist': case 'steam':

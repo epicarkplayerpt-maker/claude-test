@@ -497,6 +497,199 @@ function walkPoint(side, t, inset) {
  * that stops a street reading as an architectural model, and because it is
  * all flat plates it costs almost nothing.
  */
+
+/**
+ * The carriageway.
+ *
+ * A road takes up more of the screen than anything else in a street-level
+ * frame, and a single flat plane of asphalt is the fastest way to make a
+ * scene look like a game level. Real tarmac is a record of everything that has
+ * been done to it: trenches cut and filled by three different utilities, joints
+ * sealed with bitumen that swells proud of the surface in summer, two polished
+ * wheel paths per lane where the aggregate has been worn smooth, oil dropped by
+ * everything that ever parked, and a manhole that has been resurfaced around
+ * so many times it now sits in a shallow dish.
+ *
+ * All of it is flat plates a few millimetres above the road, so the whole layer
+ * merges into the props bucket and costs nothing.
+ */
+function buildRoadDetail(b, emit, era, eraIdx, rnd) {
+  const R = era.road || {};
+  const wear = R.wear ?? 0.4;
+  const lane = CURB + BLOCK.road / 2;          // centre of the carriageway
+  const inner = CURB, outer = ROADOUT;
+  const y = 0.008;
+
+  const dark = [0x4a4640, 0x413d38, 0x55504a];
+  const patchCol = [0x6a655c, 0x5e594f, 0x736d62, 0x4e4a44];
+
+  /** A point in the carriageway on one of the four sides. */
+  const REACH = FARWALK + 8;                   // as far out as anything is legible
+  const roadPoint = (side, t, across) => {
+    const a = lerp(-REACH, REACH, t);
+    const o = lerp(inner, outer, across);
+    return side === 'N' ? { x: a, z: -o, ax: true }
+      : side === 'S' ? { x: a, z: o, ax: true }
+      : side === 'E' ? { x: o, z: a, ax: false }
+      : { x: -o, z: a, ax: false };
+  };
+  const sides = ['N', 'S', 'E', 'W'];
+
+  /* ── Worn wheel paths ─────────────────────────────────────────
+     Two polished bands per lane, 1.6 m apart, where every tyre has run. */
+  for (const side of sides) {
+    for (const laneT of [0.27, 0.73]) {
+      for (const off of [-0.028, 0.028]) {
+        const p0 = roadPoint(side, 0, laneT + off);
+        const w = 0.62;
+        if (p0.ax) b.box(WORLD * 2, 0.004, w, p0.x, y, p0.z, 0x6a655e);
+        else b.box(w, 0.004, WORLD * 2, p0.x, y, p0.z, 0x6a655e);
+      }
+    }
+  }
+
+  /* ── Sealed cracks ────────────────────────────────────────────
+     Bitumen poured into a crack sets proud and glossy, and wanders. */
+  const crackN = Math.round(26 + wear * 46);
+  for (let i = 0; i < crackN; i++) {
+    const side = rnd.pick(sides);
+    const p = roadPoint(side, rnd.range(0.04, 0.96), rnd.range(0.06, 0.94));
+    let x = p.x, z = p.z;
+    let dir = rnd.range(0, TAU);
+    const segs = rnd.int(3, 9);
+    for (let k = 0; k < segs; k++) {
+      const len = rnd.range(0.5, 2.1);
+      dir += rnd.range(-0.7, 0.7);
+      const nx = x + Math.cos(dir) * len, nz = z + Math.sin(dir) * len;
+      b.box(len, 0.005, rnd.range(0.05, 0.11), (x + nx) / 2, y + 0.002, (z + nz) / 2,
+        rnd.pick(dark), { y: -dir });
+      x = nx; z = nz;
+      if (Math.hypot(x, z) < inner + 0.6 || Math.abs(x) > outer + 2 || Math.abs(z) > outer + 2) break;
+    }
+  }
+
+  /* ── Trench patches ───────────────────────────────────────────
+     Where a utility opened the road and reinstated it badly. */
+  const patchN = Math.round(8 + wear * 16);
+  for (let i = 0; i < patchN; i++) {
+    const side = rnd.pick(sides);
+    const p = roadPoint(side, rnd.range(0.05, 0.95), rnd.range(0.08, 0.92));
+    const long = rnd.range(1.6, 6.5), wide = rnd.range(0.8, 2.4);
+    const col = rnd.pick(patchCol);
+    const [pw, pd] = p.ax ? [long, wide] : [wide, long];
+    b.box(pw, 0.006, pd, p.x, y + 0.001, p.z, col);
+    // A rim of sealant around the reinstatement.
+    b.box(pw + 0.1, 0.004, 0.07, p.x, y + 0.004, p.z - pd / 2, dark[0]);
+    b.box(pw + 0.1, 0.004, 0.07, p.x, y + 0.004, p.z + pd / 2, dark[0]);
+    b.box(0.07, 0.004, pd, p.x - pw / 2, y + 0.004, p.z, dark[0]);
+    b.box(0.07, 0.004, pd, p.x + pw / 2, y + 0.004, p.z, dark[0]);
+  }
+
+  /* ── Covers in the carriageway, each in its own settled dish ── */
+  for (const side of sides) {
+    for (let i = 0; i < 5; i++) {
+      const p = roadPoint(side, (i + rnd.range(0.15, 0.85)) / 5, rnd.range(0.16, 0.84));
+      const r = rnd.range(0.30, 0.38);
+      b.cylOn(r + 0.42, 0.004, p.x, y, p.z, rnd.pick(patchCol), null, 12);   // resurfaced dish
+      b.cylOn(r + 0.05, 0.012, p.x, y + 0.004, p.z, 0x3a3630, null, 16);
+      b.cylOn(r, 0.018, p.x, y + 0.008, p.z, 0x4e4a42, null, 16);
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * TAU;
+        b.box(0.055, 0.006, r * 0.9, p.x + Math.cos(a) * r * 0.42, y + 0.026, p.z + Math.sin(a) * r * 0.42,
+          0x5e584e, { y: a });
+      }
+    }
+  }
+
+  /* ── Drain gullies, tight against the kerb ───────────────────── */
+  for (const side of sides) {
+    for (let i = 0; i < 6; i++) {
+      const t = (i + 0.5) / 6;
+      const near = rnd.chance(0.5);
+      const p = roadPoint(side, t, near ? 0.045 : 0.955);
+      const [gw, gd] = p.ax ? [0.74, 0.42] : [0.42, 0.74];
+      b.box(gw + 0.12, 0.008, gd + 0.12, p.x, y, p.z, 0x4a463e);
+      const bars = 6;
+      for (let k = 0; k < bars; k++) {
+        const f = (k + 0.5) / bars - 0.5;
+        if (p.ax) b.box(gw * 0.92, 0.014, gd / bars * 0.5, p.x, y + 0.006, p.z + f * gd, 0x5a544a);
+        else b.box(gw / bars * 0.5, 0.014, gd * 0.92, p.x + f * gw, y + 0.006, p.z, 0x5a544a);
+      }
+      // The dark fan of grit that always collects upstream of a gully.
+      b.box(p.ax ? 2.2 : 0.9, 0.003, p.ax ? 0.9 : 2.2, p.x, y - 0.001, p.z, 0x54504a);
+    }
+  }
+
+  /* ── Oil ──────────────────────────────────────────────────────
+     Dropped where things stand still: the kerbside parking line. */
+  const oilN = eraIdx === 5 ? 8 : Math.round(18 + wear * 26);
+  for (let i = 0; i < oilN; i++) {
+    const side = rnd.pick(sides);
+    const p = roadPoint(side, rnd.range(0.05, 0.95), rnd.chance(0.5) ? rnd.range(0.03, 0.14) : rnd.range(0.86, 0.97));
+    const r = rnd.range(0.16, 0.52);
+    b.cylOn(r, 0.003, p.x, y, p.z, 0x35322d, null, 10);
+    for (let k = 0; k < 3; k++) {
+      b.cylOn(r * rnd.range(0.2, 0.5), 0.003, p.x + rnd.range(-r, r), y + 0.001, p.z + rnd.range(-r, r), 0x2e2b27, null, 8);
+    }
+  }
+
+  /* ── Potholes: a ragged dark hollow with a lip of loose stone ── */
+  const holes = Math.round((R.potholes ?? 0.2) * 22);
+  for (let i = 0; i < holes; i++) {
+    const side = rnd.pick(sides);
+    const p = roadPoint(side, rnd.range(0.05, 0.95), rnd.range(0.12, 0.88));
+    const r = rnd.range(0.18, 0.48);
+    b.cylOn(r * 1.35, 0.004, p.x, y, p.z, 0x6a645a, null, 9);
+    b.cylOn(r, 0.006, p.x, y + 0.002, p.z, 0x201e1b, null, 9);
+    for (let k = 0; k < 5; k++) {
+      const a = rnd.range(0, TAU), d = r * rnd.range(1.0, 1.7);
+      b.box(rnd.range(0.03, 0.07), 0.01, rnd.range(0.03, 0.07),
+        p.x + Math.cos(a) * d, y + 0.005, p.z + Math.sin(a) * d, 0x8a8478, { y: a });
+    }
+  }
+
+  /* ── Cats-eyes down the centre line, once they were invented ── */
+  if (eraIdx >= 2) {
+    for (const side of sides) {
+      for (let i = 0; i < 26; i++) {
+        const p = roadPoint(side, (i + 0.5) / 26, 0.5);
+        b.box(0.11, 0.014, 0.11, p.x, y + 0.006, p.z, 0x3a3a3e);
+        emit.box(0.07, 0.008, 0.07, p.x, y + 0.014, p.z, eraIdx === 5 ? 0x8adcff : 0xe8e0c0);
+      }
+    }
+  }
+
+  /* ── 2055: an induction strip down each inside lane ───────────── */
+  if (eraIdx === 5) {
+    for (const side of sides) {
+      const p = roadPoint(side, 0.5, 0.27);
+      if (p.ax) {
+        b.box(WORLD * 2, 0.005, 0.34, p.x, y + 0.002, p.z, 0x2e4a4a);
+        emit.box(WORLD * 2, 0.004, 0.10, p.x, y + 0.008, p.z, 0x2ad8b0);
+      } else {
+        b.box(0.34, 0.005, WORLD * 2, p.x, y + 0.002, p.z, 0x2e4a4a);
+        emit.box(0.10, 0.004, WORLD * 2, p.x, y + 0.008, p.z, 0x2ad8b0);
+      }
+    }
+  }
+
+  /* ── 2025: a painted bike lane hugging the kerb ──────────────── */
+  if (R.bikeLane) {
+    for (const side of sides) {
+      const p = roadPoint(side, 0.5, 0.10);
+      const col = 0x2a5a4a;
+      if (p.ax) b.box(WORLD * 2, 0.004, 1.5, p.x, y + 0.001, p.z, col);
+      else b.box(1.5, 0.004, WORLD * 2, p.x, y + 0.001, p.z, col);
+      // Dashed white edge
+      for (let i = 0; i < 40; i++) {
+        const q = roadPoint(side, (i + 0.5) / 40, 0.165);
+        if (q.ax) b.box(1.1, 0.004, 0.09, q.x, y + 0.004, q.z, 0xd8d8d0);
+        else b.box(0.09, 0.004, 1.1, q.x, y + 0.004, q.z, 0xd8d8d0);
+      }
+    }
+  }
+}
+
 function buildPavementDetail(b, emit, era, eraIdx, rnd, out) {
   const Y = BLOCK.curbHeight;
   const sides = ['N', 'S', 'E', 'W'];
@@ -667,8 +860,15 @@ function buildProps(out, ctx, era, eraIdx, rnd) {
     }
   }
 
-  /* Ironwork, hatches and the day's litter */
-  buildPavementDetail(b, emit, era, eraIdx, rnd, out);
+  /* Ironwork, hatches, litter, and everything the traffic has done to the
+     carriageway. These are flat plates a few millimetres above the ground: in
+     the shadow-casting bucket they would shadow the surface they lie on, so
+     they get their own mesh that receives but never casts. */
+  const flat = new Bucket();
+  buildPavementDetail(flat, emit, era, eraIdx, rnd, out);
+  buildRoadDetail(flat, emit, era, eraIdx, rnd);
+  const fm = flat.mesh(mats.vcol('matte'), { cast: false, name: 'groundDetail' });
+  if (fm) out.group.add(fm);
 
   /* Alley dressing */
   buildAlley(b, emit, out, ctx, era, eraIdx, rnd);

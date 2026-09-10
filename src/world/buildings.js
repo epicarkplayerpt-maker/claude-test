@@ -194,6 +194,7 @@ function buildFacade(fg, W, H, lot, era, eraIdx, ctx, rnd, out, isFront, face) {
   if (lot.louvres) buildLouvres(detail, W, H, era, rnd);
   if (lot.pods) buildPods(detail, W, H, era, rnd);
   if (lot.acUnits) buildWindowACs(detail, W, lot, rnd);
+  buildWindowLife(detail, W, H, lot, era, eraIdx, rnd, isFront);
 
   /* ── Painted wall advertising ─────────────────────────────────── */
   if (!isFront && lot.wallAd && lot.wallAd !== 'MURAL' && lot.wallAd !== 'HOLO') {
@@ -444,7 +445,7 @@ function buildStorefront(fg, b, W, lot, era, eraIdx, ctx, rnd, out, face) {
   }
 
   /* ── Awning ───────────────────────────────────────────────────── */
-  if (lot.awning) buildAwning(fg, b, W, lot, era, ctx, rnd);
+  if (lot.awning) buildAwning(fg, b, W, lot, era, ctx, rnd, out, face);
 
   /* ── Signage ──────────────────────────────────────────────────── */
   buildSignage(fg, b, W, lot, era, eraIdx, ctx, rnd, out, face, signBandY, signBandH);
@@ -529,21 +530,34 @@ function buildGrate(b, x0, x1, y0, y1, z, half) {
   b.box(w + 0.16, 0.16, 0.16, (x0 + x1) / 2, y1b + 0.1, z, 0x3a3a40);
 }
 
-function buildAwning(fg, b, W, lot, era, ctx, rnd) {
+function buildAwning(fg, b, W, lot, era, ctx, rnd, out, face) {
   const { mats } = ctx;
   const y = 3.5, proj = 1.65, drop = 0.62;
   const aw = W - 1.0;
   const col = lot.awning;
+  // The valance is the only part of an awning that is not stretched over a
+  // frame, so it is the only part that moves. It gets its own mesh, hinged at
+  // its top edge, and the wind swings it — one extra draw for the one piece
+  // of the shopfront that is soft.
+  const val = new Bucket();
 
   // Sloped fabric — a thin box tilted so it reads as canvas on a frame.
   const ang = Math.atan2(drop, proj);
   b.box(aw, 0.06, Math.hypot(proj, drop), 0, y - drop / 2, proj / 2, col, { x: -ang });
   // Valance with a scalloped edge approximated by short segments.
   const scallops = Math.max(4, Math.round(aw / 0.55));
+  const hingeY = y - drop;
   for (let i = 0; i < scallops; i++) {
     const sx = -aw / 2 + (i + 0.5) * (aw / scallops);
-    b.box(aw / scallops - 0.04, 0.34, 0.05, sx, y - drop - 0.15, proj, col);
-    b.cyl(0.075, aw / scallops - 0.06, sx, y - drop - 0.32, proj, col, { z: Math.PI / 2 }, 6);
+    // Built around the hinge so the mesh can be rotated about its own top edge.
+    val.box(aw / scallops - 0.04, 0.34, 0.05, sx, -0.15, 0, col);
+    val.cyl(0.075, aw / scallops - 0.06, sx, -0.32, 0, col, { z: Math.PI / 2 }, 6);
+  }
+  const vm = val.mesh(mats.vcol('matte'), { name: 'valance' });
+  if (vm) {
+    vm.position.set(0, hingeY, proj);
+    fg.add(vm);
+    out?.animated.push({ kind: 'sway', mesh: vm, amp: 0.16, seed: (lot.id.charCodeAt(0) % 17) / 17 });
   }
   // Stripes
   if (lot.awningStripe) {
@@ -559,6 +573,11 @@ function buildAwning(fg, b, W, lot, era, ctx, rnd) {
     b.rod(sx, y, 0.1, sx, y - drop, proj, 0.035, 0x4a4642);
     b.rod(sx, y, 0.1, sx, y - drop + 0.42, proj * 0.55, 0.028, 0x4a4642);
   }
+  // Underside. A canvas awning is a sheet of dyed cotton with the sun behind
+  // it and a lit pavement under it — it glows. Rendered as one solid box it
+  // reads as a black slab from below, which is where you always see it from.
+  b.box(aw - 0.06, 0.02, Math.hypot(proj, drop) * 0.96, 0, y - drop / 2 - 0.045, proj / 2,
+    tintUp(col, 0.52), { x: -ang });
 }
 
 /* ══════════════════════════ signage ══════════════════════════ */
@@ -1158,6 +1177,91 @@ function buildWindowGrid(fg, b, W, lot, era, eraIdx, ctx, rnd, out, isFront, fac
   if (lm) fg.add(lm);
 
   if (kind === 'growTube') buildGrowTubes(fg, b, W, floors, era, ctx, lot, out);
+}
+
+/**
+ * The things people put in their windows.
+ *
+ * An elevation is a grid of identical openings until somebody lives behind
+ * them. A geranium box on the second floor, a television aerial guyed to the
+ * parapet, a satellite dish bolted at head height off a fire escape, one pane
+ * cracked and taped, a pigeon on a sill — each is three or four boxes, and
+ * together they are the difference between a building and a texture.
+ */
+function buildWindowLife(b, W, H, lot, era, eraIdx, rnd, isFront) {
+  const floors = Math.max(0, lot.floors - 1);
+  if (floors <= 0) return;
+  const bays = Math.max(1, Math.round((W - 1.6) / 2.55));
+  const step = (W - 1.6) / bays;
+  const sillY = (f) => GROUND_H + f * FLOOR_H + FLOOR_H * 0.52 - 1.05;
+
+  for (let f = 0; f < floors; f++) {
+    for (let i = 0; i < bays; i++) {
+      const x = -W / 2 + 0.8 + (i + 0.5) * step;
+      const y = sillY(f);
+      const roll = rnd.range(0, 1);
+
+      if (roll < 0.13) {
+        // Window box. Wartime and 2020s blocks grow food in them; the decades
+        // between grow geraniums.
+        const edible = eraIdx === 0 || eraIdx >= 4;
+        b.box(0.98, 0.20, 0.26, x, y + 0.10, 0.30, eraIdx <= 1 ? 0x5a4030 : 0x6a6a66);
+        b.box(0.90, 0.05, 0.20, x, y + 0.20, 0.30, 0x3a2e22);
+        for (let k = 0; k < 7; k++) {
+          const px = x - 0.4 + k * 0.135;
+          const h = rnd.range(0.12, 0.30);
+          b.box(0.05, h, 0.05, px, y + 0.22 + h / 2, 0.30 + rnd.range(-0.05, 0.05),
+            edible ? 0x4a7a34 : 0x3e6a2e, { z: rnd.range(-0.3, 0.3) });
+          if (!edible && rnd.chance(0.55)) {
+            b.sphere(0.045, px, y + 0.24 + h, 0.30, rnd.pick([0xd83a4a, 0xe86a30, 0xf0c0d0]), true);
+          } else if (edible && rnd.chance(0.35)) {
+            b.sphere(0.04, px, y + 0.20 + h * 0.7, 0.33, rnd.pick([0xc03a2a, 0xd8a020]), true);
+          }
+        }
+      } else if (roll < 0.20 && f >= 1) {
+        // A pigeon that has decided this sill is its sill.
+        const px = x + rnd.range(-0.3, 0.3);
+        b.box(0.09, 0.085, 0.15, px, y + 0.14, 0.24, 0x6a6a72, { y: rnd.range(-0.6, 0.6) });
+        b.box(0.05, 0.05, 0.055, px, y + 0.20, 0.17, 0x62626c);
+      } else if (roll < 0.245 && eraIdx >= 1 && eraIdx <= 3) {
+        // Cracked pane, taped rather than replaced.
+        b.box(0.02, 0.03, 0.02, x, y + 0.9, 0.06, 0xd8d0b8);
+        for (let k = 0; k < 3; k++) {
+          b.box(rnd.range(0.3, 0.7), 0.022, 0.02, x + rnd.range(-0.2, 0.2), y + 0.7 + k * 0.28, 0.055,
+            0xd8d0b8, { z: rnd.range(-0.9, 0.9) });
+        }
+      }
+    }
+  }
+
+  /* Roofline aerials and dishes — the single most era-legible silhouette. */
+  if (!isFront) return;
+  const top = H + 0.4;
+  if (eraIdx === 1 || eraIdx === 2) {
+    // Forests of them went up between 1953 and 1975 and stayed until cable.
+    for (let k = 0; k < rnd.int(2, 5); k++) {
+      const ax = rnd.range(-W / 2 + 1.5, W / 2 - 1.5);
+      const mh = rnd.range(1.4, 2.6);
+      b.cylOn(0.028, mh, ax, top, -0.6, 0x9a9a96, null, 6);
+      const arms = rnd.int(4, 8);
+      for (let a = 0; a < arms; a++) {
+        const ay = top + mh * (0.35 + a * 0.09);
+        const aw2 = 1.35 - a * 0.11;
+        b.box(aw2, 0.022, 0.022, ax, ay, -0.6, 0xb0b0aa);
+      }
+      b.rod(ax, top + mh, -0.6, ax + rnd.range(-1.4, 1.4), top + 0.1, -1.4, 0.012, 0x8a8a86);
+    }
+  }
+  if (eraIdx === 3 || eraIdx === 4) {
+    for (let k = 0; k < rnd.int(1, 3); k++) {
+      const dx = rnd.range(-W / 2 + 1.2, W / 2 - 1.2);
+      const dy = GROUND_H + rnd.int(1, Math.max(1, floors)) * FLOOR_H;
+      b.cylOn(0.05, 0.5, dx, dy, 0.2, 0x8a8a86, null, 6);
+      b.cyl(0.34, 0.09, dx, dy + 0.55, 0.42, 0xe4e4e0, { x: -0.7 }, 14);
+      b.rod(dx, dy + 0.55, 0.42, dx, dy + 0.5, 0.72, 0.02, 0x6a6a66);
+      b.sphere(0.05, dx, dy + 0.5, 0.74, 0x3a3a3e, true);
+    }
+  }
 }
 
 function buildWindowACs(b, W, lot, rnd) {

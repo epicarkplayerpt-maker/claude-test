@@ -330,18 +330,67 @@ function setGhost(on) {
   }
 }
 
+/**
+ * Where a saved photo goes.
+ *
+ * Served as a plain page, an anchor with a `download` attribute is all it
+ * takes. Published as an artifact, the page is sandboxed and cannot start a
+ * download itself — the host mediates it and the viewer confirms the filename.
+ * Resolve the bridge once and remember whether there is one.
+ */
+let _downloads;
+function downloadBridge() {
+  if (_downloads === undefined) {
+    _downloads = window.claude?.use
+      ? window.claude.use('downloads').catch(() => null)
+      : Promise.resolve(null);
+  }
+  return _downloads;
+}
+
+/** data: URL → Blob, without fetch (which the artifact CSP does not carry). */
+function dataUrlToBlob(url) {
+  const comma = url.indexOf(',');
+  const mime = (url.slice(0, comma).match(/:(.*?);/) || [, 'image/png'])[1];
+  const bin = atob(url.slice(comma + 1));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
 function shoot() {
   hud.flash();
   audio.ui('shutter');
   // The frame on screen is the frame we want, so read it back immediately.
-  requestAnimationFrame(() => {
+  requestAnimationFrame(async () => {
+    const name = `the-block-${ERAS[state.era].year}-${Date.now()}.png`;
+    const ok = () => hud.toast('Photo saved', `${ERAS[state.era].year} · ${state.film}`);
+    let url;
     try {
-      const url = engine.snapshot('image/png');
+      url = engine.snapshot('image/png');
+    } catch {
+      hud.toast('Could not read the frame', 'Try a screenshot instead');
+      return;
+    }
+
+    const dl = await downloadBridge();
+    if (dl) {
+      try {
+        await dl.save({ filename: name, data: dataUrlToBlob(url) });
+        ok();
+      } catch (e) {
+        if (e?.code === 'declined') hud.toast('Photo not saved', 'You cancelled the download');
+        else hud.toast('Could not save the photo', 'Try a screenshot instead');
+      }
+      return;
+    }
+
+    try {
       const a = document.createElement('a');
       a.href = url;
-      a.download = `the-block-${ERAS[state.era].year}-${Date.now()}.png`;
+      a.download = name;
       document.body.appendChild(a); a.click(); a.remove();
-      hud.toast('Photo saved', `${ERAS[state.era].year} · ${state.film}`);
+      ok();
     } catch {
       hud.toast('Could not save the photo', 'Try a screenshot instead');
     }

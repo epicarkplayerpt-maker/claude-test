@@ -542,7 +542,7 @@ export class Crowd {
     this.build = BUILD[era.year] || BUILD[2025];
     const rnd = new Rand(`crowd:${era.year}`);
     const w = era.peds;
-    const n = Math.min(this.max, Math.round(38 * w.density * densityScale));
+    const n = Math.min(this.max, Math.round(54 * w.density * densityScale));
     this.people.length = 0;
 
     const hairFor = (dressy) => {

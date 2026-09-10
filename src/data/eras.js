@@ -132,7 +132,7 @@ export const ERAS = [
     awning: [0x2f5c46, 0x7a2b26, 0x2b4a72, 0x6b5522],
     paint: [0x3b4a3c, 0x5c3b2c, 0x2f3d52, 0x6a5330],
     glass: 0x2a3038, glassTint: 0.06,
-    metal: 0x4a4640, road: 0x6f6a61, walk: 0xa79c8c,
+    metal: 0x4a4640, road: 0x5e5a53, walk: 0x9c9385,
     roof: 0x413a33,
   },
   road: {
@@ -633,9 +633,11 @@ export const ERAS = [
   ],
 
   sky: {
-    top: 0x8ea4b8, horizon: 0xc4ced6, ground: 0x7a7a76,
-    sunColor: 0xf0f4ff, sunIntensity: 2.1, sunElev: 46, sunAzim: 176,
-    ambSky: 0xb8c8d8, ambGround: 0x6a6a68, ambIntensity: 1.05,
+    // Overcast, but a thin overcast with the sun findable behind it — not a
+    // blue gel over the whole world. Neutral sky, warm ground bounce.
+    top: 0x93a3ae, horizon: 0xc9cdcc, ground: 0x7c7870,
+    sunColor: 0xfff4e4, sunIntensity: 2.35, sunElev: 46, sunAzim: 176,
+    ambSky: 0xc2c8cc, ambGround: 0x7e7466, ambIntensity: 1.18,
     fog: 0xc0c8d0, fogNear: 55, fogFar: 290, haze: 0.35,
     clouds: 0.82, cloudColor: 0xd8dee4, cloudSpeed: 0.026, stars: 0,
     overcast: true,

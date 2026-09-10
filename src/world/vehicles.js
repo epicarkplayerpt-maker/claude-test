@@ -126,7 +126,10 @@ const SPECS = {
 
 const CHROME = 0xd8dce0;
 const GLASSC = 0x9ac0d8;
-const TYRE = 0x14141a;
+// Rubber is not black. A tyre in daylight is a dusty dark grey, and at 0x14
+// it disappeared into the shadow under the arch — the car read as a body
+// floating over two holes with a hubcap in each.
+const TYRE = 0x35353a;
 const BLACKTRIM = 0x16161a;
 
 /**
@@ -189,7 +192,9 @@ export function buildVehicle(kind, color, era, mats, rnd) {
         // Tyre: a carcass plus a slightly narrower shoulder, so the tread band
         // catches light differently from the sidewall.
         wb.cyl(wr, ww, 0, 0, 0, TYRE, { z: Math.PI / 2 }, 20);
-        wb.cyl(wr * 0.995, ww * 1.04, 0, 0, 0, 0x0e0e12, { z: Math.PI / 2 }, 20);
+        wb.cyl(wr * 0.995, ww * 1.04, 0, 0, 0, 0x2a2a2f, { z: Math.PI / 2 }, 20);
+        // Sidewall lettering catches the light and gives the wheel a radius.
+        wb.cyl(wr * 0.86, ww * 1.05, 0, 0, 0, 0x44444a, { z: Math.PI / 2 }, 18);
         if (whitewall) wb.cyl(wr * 0.80, ww * 1.06, 0, 0, 0, 0xd8d4cc, { z: Math.PI / 2 }, 18);
         // Rim
         const rimR = wr * (era.year <= 1965 ? 0.56 : 0.66);
@@ -1008,7 +1013,7 @@ export class Traffic {
     const rnd = new Rand(`traffic:${era.year}`);
     const types = era.vehicles.types;
     const weights = types.map((t) => t.w);
-    const n = Math.round(10 * era.vehicles.density * densityScale);
+    const n = Math.round(15 * era.vehicles.density * densityScale);
 
     for (let i = 0; i < n; i++) {
       const spec = rnd.weighted(types, weights);
