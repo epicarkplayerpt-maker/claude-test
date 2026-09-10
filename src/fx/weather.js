@@ -21,7 +21,9 @@ uniform vec3 uBox;         // half extents
 uniform float uFall;       // fall speed
 uniform float uDrift;      // lateral sway
 uniform float uSize;
-uniform float uSway;       // sway frequency
+uniform float uSway;
+uniform float uPixelScale;
+uniform float uMaxSize;       // sway frequency
 varying float vFade;
 varying float vSeed;
 
@@ -41,12 +43,20 @@ void main(){
   vec4 mv = modelViewMatrix * vec4(world, 1.0);
   gl_Position = projectionMatrix * mv;
 
-  // Fade at the box edges so particles never pop into existence.
+  float dist = max(-mv.z, 0.05);
+
+  // Fade at the box edges so particles never pop into existence...
   float edge = 1.0 - max(abs(x) / uBox.x, abs(z) / uBox.z);
-  vFade = clamp(edge * 2.4, 0.0, 1.0);
+  // ...and fade anything nearly touching the lens. Without this a single
+  // raindrop 30 cm from the camera projects to thousands of pixels and, being
+  // additive, whites out the entire frame.
+  float near = smoothstep(0.30, 2.4, dist);
+  vFade = clamp(edge * 2.4, 0.0, 1.0) * near;
   vSeed = aSeed.w;
 
-  gl_PointSize = uSize * sp * (300.0 / max(-mv.z, 1.0));
+  // uSize is a world size in metres; uPixelScale converts it to pixels at
+  // one metre, so the sprite stays physically sized at any FOV or resolution.
+  gl_PointSize = clamp(uSize * sp * uPixelScale / dist, 1.0, uMaxSize);
 }
 `;
 
@@ -99,6 +109,8 @@ class Field {
       uFall: { value: opts.fall },
       uDrift: { value: opts.drift },
       uSize: { value: opts.size },
+      uPixelScale: { value: 600 },
+      uMaxSize: { value: opts.maxSize ?? 42 },
       uSway: { value: opts.sway ?? 0.6 },
       uColor: { value: new THREE.Color(opts.color) },
       uOpacity: { value: 0 },
@@ -117,8 +129,9 @@ class Field {
     this.targetOpacity = 0;
     this.baseOpacity = opts.opacity ?? 0.55;
   }
-  update(dt, time, camPos) {
+  update(dt, time, camPos, pixelScale) {
     const u = this.uniforms;
+    if (pixelScale) u.uPixelScale.value = pixelScale;
     u.uTime.value = time;
     u.uOrigin.value.set(camPos.x, camPos.y, camPos.z);
     u.uOpacity.value = damp(u.uOpacity.value, this.targetOpacity, 2.2, dt);
@@ -136,9 +149,10 @@ class Field {
 
 const PUFF_VS = /* glsl */`
 attribute vec4 aSeed;
-uniform float uTime, uRise, uSpread, uSize, uLife;
+uniform float uTime, uRise, uSpread, uSize, uLife, uPixelScale;
 uniform vec3 uAnchor;
 varying float vAge;
+varying float vNear;
 void main(){
   float life = uLife * (0.6 + aSeed.w * 0.7);
   float age = mod(uTime * (0.5 + aSeed.w * 0.5) + aSeed.w * 13.0, life) / life;
@@ -147,17 +161,20 @@ void main(){
     + vec3(0.0, age * uRise, 0.0);
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = uSize * (0.4 + age * 2.2) * (300.0 / max(-mv.z, 1.0));
+  float dist = max(-mv.z, 0.05);
+  gl_PointSize = clamp(uSize * (0.4 + age * 2.2) * uPixelScale / dist, 1.0, 220.0);
   vAge = age;
+  vNear = smoothstep(0.4, 3.0, dist);
 }
 `;
 const PUFF_FS = /* glsl */`
 precision mediump float;
 uniform vec3 uColor; uniform float uOpacity;
 varying float vAge;
+varying float vNear;
 void main(){
   float d = length(gl_PointCoord - 0.5);
-  float a = (1.0 - smoothstep(0.1, 0.5, d)) * uOpacity;
+  float a = (1.0 - smoothstep(0.1, 0.5, d)) * uOpacity * vNear;
   a *= smoothstep(0.0, 0.18, vAge) * (1.0 - smoothstep(0.45, 1.0, vAge));
   if (a < 0.008) discard;
   gl_FragColor = vec4(uColor, a);
@@ -183,7 +200,8 @@ class Puff {
     this.uniforms = {
       uTime: { value: 0 }, uAnchor: { value: anchor.clone() },
       uRise: { value: opts.rise ?? 4.5 }, uSpread: { value: opts.spread ?? 0.6 },
-      uSize: { value: opts.size ?? 26 }, uLife: { value: opts.life ?? 5 },
+      uSize: { value: opts.size ?? 1.2 }, uLife: { value: opts.life ?? 5 },
+      uPixelScale: { value: 600 },
       uColor: { value: new THREE.Color(opts.color ?? 0xd8d8d0) },
       uOpacity: { value: opts.opacity ?? 0.14 },
     };
@@ -196,7 +214,10 @@ class Puff {
     this.points.renderOrder = 890;
     scene.add(this.points);
   }
-  update(time) { this.uniforms.uTime.value = time; }
+  update(time, pixelScale) {
+    this.uniforms.uTime.value = time;
+    if (pixelScale) this.uniforms.uPixelScale.value = pixelScale;
+  }
   dispose(scene) { scene.remove(this.points); this.points.geometry.dispose(); this.mat.dispose(); }
 }
 
@@ -210,27 +231,27 @@ export class Weather {
 
     this.rain = new Field(scene, n(1100), {
       seed: 'rain', box: { x: 16, y: 12, z: 16 }, fall: 22, drift: 0.18,
-      size: 26, sway: 0.3, color: 0xbfd4e8, opacity: 0.5, streak: true, additive: false,
+      size: 0.24, maxSize: 34, sway: 0.3, color: 0xa8c0d8, opacity: 0.30, streak: true, additive: false,
     });
     this.snow = new Field(scene, n(700), {
       seed: 'snow', box: { x: 18, y: 13, z: 18 }, fall: 1.5, drift: 1.5,
-      size: 9, sway: 0.5, color: 0xf4f8ff, opacity: 0.85, streak: false,
+      size: 0.075, maxSize: 26, sway: 0.5, color: 0xf4f8ff, opacity: 0.85, streak: false,
     });
     this.soot = new Field(scene, n(420), {
       seed: 'soot', box: { x: 20, y: 12, z: 20 }, fall: 0.55, drift: 2.4,
-      size: 5, sway: 0.28, color: 0x3a3228, opacity: 0.5, streak: false,
+      size: 0.045, maxSize: 16, sway: 0.28, color: 0x3a3228, opacity: 0.45, streak: false,
     });
     this.leaves = new Field(scene, n(120), {
       seed: 'leaf', box: { x: 18, y: 10, z: 18 }, fall: 1.9, drift: 3.2,
-      size: 12, sway: 0.9, color: 0xa8823a, opacity: 0.85, streak: false,
+      size: 0.11, maxSize: 30, sway: 0.9, color: 0xa8823a, opacity: 0.85, streak: false,
     });
     this.pollen = new Field(scene, n(300), {
       seed: 'pollen', box: { x: 16, y: 9, z: 16 }, fall: 0.28, drift: 1.9,
-      size: 5, sway: 0.4, color: 0xffe8b0, opacity: 0.5, streak: false, additive: true,
+      size: 0.030, maxSize: 12, sway: 0.4, color: 0xffe8b0, opacity: 0.30, streak: false, additive: true,
     });
     this.ash = new Field(scene, n(240), {
       seed: 'ash', box: { x: 18, y: 11, z: 18 }, fall: 0.7, drift: 2.6,
-      size: 6, sway: 0.35, color: 0x8fd6d8, opacity: 0.42, streak: false, additive: true,
+      size: 0.038, maxSize: 14, sway: 0.35, color: 0x8fd6d8, opacity: 0.26, streak: false, additive: true,
     });
 
     this.fields = [this.rain, this.snow, this.soot, this.leaves, this.pollen, this.ash];
@@ -265,9 +286,14 @@ export class Weather {
     return this.mode === 'rain' ? 1 : this.mode === 'drizzle' ? 0.6 : this.mode === 'overcast' ? 0.25 : 0;
   }
 
-  update(dt, time, camPos) {
-    for (const f of this.fields) f.update(dt, time, camPos);
-    for (const p of this.puffs) p.update(time);
+  /**
+   * `pixelScale` is viewportHeight / (2·tan(fov/2)) — the number of pixels a
+   * one-metre object covers at one metre. Passing it in keeps sprite sizes
+   * physical across every FOV, render scale and device.
+   */
+  update(dt, time, camPos, pixelScale) {
+    for (const f of this.fields) f.update(dt, time, camPos, pixelScale);
+    for (const p of this.puffs) p.update(time, pixelScale);
   }
 
   dispose() {
@@ -280,7 +306,7 @@ export class Weather {
 
 const RING_VS = /* glsl */`
 attribute vec4 aSeed;
-uniform float uTime, uRadius, uSize;
+uniform float uTime, uRadius, uSize, uPixelScale;
 uniform vec3 uCenter;
 varying float vA;
 void main(){
@@ -290,8 +316,9 @@ void main(){
   vec3 p = uCenter + vec3(cos(ang) * r, aSeed.z * 8.0 + 1.0, sin(ang) * r);
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = uSize * (0.5 + aSeed.w) * (300.0 / max(-mv.z, 1.0));
-  vA = aSeed.w;
+  float dist = max(-mv.z, 0.05);
+  gl_PointSize = clamp(uSize * (0.5 + aSeed.w) * uPixelScale / dist, 1.0, 90.0);
+  vA = aSeed.w * smoothstep(0.5, 3.0, dist);
 }
 `;
 const RING_FS = /* glsl */`
@@ -322,7 +349,8 @@ export class WarpRing {
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
     this.uniforms = {
-      uTime: { value: 0 }, uRadius: { value: 0 }, uSize: { value: 22 },
+      uTime: { value: 0 }, uRadius: { value: 0 }, uSize: { value: 0.55 },
+      uPixelScale: { value: 600 },
       uCenter: { value: new THREE.Vector3() },
       uColor: { value: new THREE.Color(0xffe0b0) }, uOpacity: { value: 0 },
     };

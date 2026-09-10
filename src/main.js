@@ -17,6 +17,7 @@ import { Audio } from './core/audio.js';
 import { Sky } from './world/sky.js';
 import { City } from './world/city.js';
 import { setAnisotropy, setTextureScale } from './world/textures.js';
+import { setWind } from './world/materials.js';
 import { Weather, WarpRing } from './fx/weather.js';
 import { TimeWarp } from './fx/timewarp.js';
 import { HUD } from './ui/hud.js';
@@ -149,13 +150,13 @@ function buildEmitters(idx) {
   const rec = city.eras[idx];
   if (!rec) return list;
   for (const a of rec.animated) {
-    if (a.kind === 'steam') list.push({ pos: a.pos, opts: { color: 0xd8d4cc, rise: 6.5, spread: 0.7, size: 42, life: 5.5, opacity: 0.13, count: 30 } });
-    if (a.kind === 'mist') list.push({ pos: a.pos, opts: { color: 0xbfe4ea, rise: -2.6, spread: 1.4, size: 30, life: 3.4, opacity: 0.1, count: 26 } });
-    if (a.kind === 'crane') list.push({ pos: a.pos, opts: { color: 0xc8c0b0, rise: 2, spread: 2, size: 18, life: 6, opacity: 0.04, count: 12 } });
+    if (a.kind === 'steam') list.push({ pos: a.pos, opts: { color: 0xd8d4cc, rise: 6.5, spread: 0.7, size: 1.5, life: 5.5, opacity: 0.13, count: 30 } });
+    if (a.kind === 'mist') list.push({ pos: a.pos, opts: { color: 0xbfe4ea, rise: -2.6, spread: 1.4, size: 1.1, life: 3.4, opacity: 0.10, count: 26 } });
+    if (a.kind === 'crane') list.push({ pos: a.pos, opts: { color: 0xc8c0b0, rise: 2, spread: 2, size: 0.7, life: 6, opacity: 0.04, count: 12 } });
   }
   if (era.sky.smokestacks) {
     for (const p of [[-58, -62], [64, -70], [-70, 58]]) {
-      list.push({ pos: new THREE.Vector3(p[0], 22, p[1]), opts: { color: 0x6a6058, rise: 14, spread: 2.4, size: 56, life: 9, opacity: 0.07, count: 22 } });
+      list.push({ pos: new THREE.Vector3(p[0], 22, p[1]), opts: { color: 0x6a6058, rise: 14, spread: 2.4, size: 2.6, life: 9, opacity: 0.07, count: 22 } });
     }
   }
   return list;
@@ -284,6 +285,7 @@ hud.on = {
     const scale = v ? 1 : 0.3;
     city.traffic.populate(ERAS[state.era], state.era, engine.q.traffic * scale);
     city.crowd?.populate(ERAS[state.era], state.era, engine.q.crowd * scale);
+    city.flock?.populate(ERAS[state.era], state.era, engine.q.crowd * scale);
   },
   volume: (v) => audio.setVolume(v),
   music: (v) => audio.setMusicVolume(v),
@@ -477,8 +479,17 @@ function frame(now) {
   sky.followCamera(engine.camera.position);
   if (engine.q.shadows) sky.setShadowQuality(engine.q.shadowSize, engine.q.shadowDist);
 
+  /* Wind: a slow shift in direction with gusts riding on top. Everything with
+     a leaf on it reads this, and so does the weather field. */
+  const gust = 0.10 + 0.055 * (Math.sin(state.time * 0.21) * 0.5 + 0.5)
+    + (ERAS[state.era].weather === 'wind' || ERAS[state.era].weather === 'storm' ? 0.20 : 0);
+  setWind({ time: state.time, dir: 0.6 + Math.sin(state.time * 0.037) * 0.9, amount: gust });
+
   city.update(dt, state.time, player.pos, sky.daylight, audio);
-  weather.update(dt, state.time, engine.camera.position);
+  // Pixels per metre at one metre — keeps every sprite physically sized.
+  const pixelScale = engine._h / (2 * Math.tan(engine.camera.fov * Math.PI / 360));
+  weather.update(dt, state.time, engine.camera.position, pixelScale);
+  warpRing.uniforms.uPixelScale.value = pixelScale;
 
   /* Audio follows the nearest vehicle and the player's heading. */
   if (audio.ready && state.playing) {
@@ -527,6 +538,7 @@ function renderGhost() {
   cur.group.visible = false;
   other.group.visible = true;
   city.crowd?.setVisible(false);
+  city.flock?.setVisible(false);
   city.traffic.setVisible(false);
   engine.renderer.setRenderTarget(rt);
   engine.renderer.clear(true, true, false);
@@ -535,6 +547,7 @@ function renderGhost() {
   other.group.visible = false;
   cur.group.visible = true;
   city.crowd?.setVisible(true);
+  city.flock?.setVisible(true);
   city.traffic.setVisible(true);
 }
 
@@ -560,6 +573,7 @@ window.__diag = () => ({
   era: ERAS[state.era].year,
   interactables: city.interactables.length,
   peds: city.crowd?.people.length ?? 0,
+  birds: city.flock?.birds.length ?? 0,
   vehicles: city.traffic.vehicles.length,
   secrets: save.secretCount(),
   pos: [+player.pos.x.toFixed(1), +player.pos.y.toFixed(1), +player.pos.z.toFixed(1)],

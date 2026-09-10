@@ -146,8 +146,8 @@ export const ERAS = [
   vehicles: {
     density: 0.55, speed: 8.5,
     types: [
-      { kind: 'sedan45', w: 5, colors: [0x1a1a1c, 0x2a2018, 0x24303a, 0x3a2a26, 0x1f2a24] },
-      { kind: 'coupe45', w: 3, colors: [0x14181c, 0x30201a, 0x1e2830] },
+      { kind: 'sedan45', w: 5, colors: [0x24242a, 0x3a2c22, 0x2c3a48, 0x4a2a28, 0x2a3a30, 0x5a4a3a] },
+      { kind: 'coupe45', w: 3, colors: [0x22262c, 0x40281e, 0x28323e, 0x6a3230] },
       { kind: 'truck45', w: 2, colors: [0x3d4a35, 0x5a4a2a, 0x2a3540] },
       { kind: 'taxi45', w: 2, colors: [0xd8a020] },
       { kind: 'trolley', w: 1, colors: [0x6d3a2c] },
@@ -446,18 +446,23 @@ export const ERAS = [
   sky: {
     top: 0x14182c, horizon: 0x3a2a48, ground: 0x1a1620,
     sunColor: 0xff9a5a, sunIntensity: 0.55, sunElev: 4, sunAzim: 262,
-    ambSky: 0x3a3a5c, ambGround: 0x241c28, ambIntensity: 0.5,
-    fog: 0x261e34, fogNear: 22, fogFar: 165, haze: 0.72,
+    // A wet street under sodium and neon is not a black screen: the cloud deck
+    // bounces every sign on the block straight back down. Raising the ambient
+    // and the lift is what lets the brickwork read at all after dark.
+    ambSky: 0x5c5c86, ambGround: 0x9a6a3a, ambIntensity: 2.35,
+    fog: 0x261e34, fogNear: 26, fogFar: 180, haze: 0.66,
     clouds: 0.72, cloudColor: 0x3a3048, cloudSpeed: 0.03, stars: 0.35,
-    neonBounce: 0.7,
+    neonBounce: 0.85,
   },
   grade: {
-    exposure: 1.22, lift: [0.03, 0.012, 0.05], gamma: [1.0, 1.02, 0.97],
+    exposure: 1.46, lift: [0.055, 0.032, 0.075], gamma: [1.0, 1.02, 0.97],
     gain: [1.02, 0.98, 1.1], tint: [1.02, 0.97, 1.1],
-    sat: 1.24, contrast: 1.18, temp: -0.14,
-    vignette: 0.54, grain: 0.052, chroma: 0.48, halation: 0.36,
-    sepia: 0, vhs: 0.26, bleach: 0, holo: 0, dust: 0.04,
-    bloomStrength: 1.5, bloomThreshold: 0.72,
+    sat: 1.24, contrast: 1.12, temp: -0.14,
+    vignette: 0.44, grain: 0.034, chroma: 0.36, halation: 0.30,
+    // The tape artefacts sell the decade, but at 0.26 they were smearing half
+    // the frame. Enough to notice, not enough to read through.
+    sepia: 0, vhs: 0.13, bleach: 0, holo: 0, dust: 0.04,
+    bloomStrength: 1.4, bloomThreshold: 0.76,
   },
   timeOfDay: 19 * 60 + 55,
   weather: 'rain',
@@ -638,9 +643,12 @@ export const ERAS = [
   grade: {
     exposure: 1.12, lift: [0.016, 0.018, 0.022], gamma: [1.0, 1.0, 1.0],
     gain: [0.99, 1.0, 1.02], tint: [0.98, 1.0, 1.03],
-    sat: 0.92, contrast: 1.1, temp: -0.09,
+    // Overcast is the point of this decade, but a hard blue cast over a
+    // blue-panelled block leaves one colour on screen. Warm it slightly and
+    // give the bleach less to do.
+    sat: 0.98, contrast: 1.12, temp: -0.03,
     vignette: 0.3, grain: 0.022, chroma: 0.18, halation: 0,
-    sepia: 0, vhs: 0, bleach: 0.34, holo: 0, dust: 0.02,
+    sepia: 0, vhs: 0, bleach: 0.24, holo: 0, dust: 0.02,
     bloomStrength: 0.5, bloomThreshold: 1.3,
   },
   timeOfDay: 11 * 60 + 25,
@@ -802,7 +810,7 @@ export const ERAS = [
   sky: {
     top: 0x2a5f9e, horizon: 0xf0c49a, ground: 0x6a6252,
     sunColor: 0xffd8a8, sunIntensity: 3.0, sunElev: 24, sunAzim: 288,
-    ambSky: 0x9ab8dc, ambGround: 0x70604c, ambIntensity: 0.9,
+    ambSky: 0x9ab8dc, ambGround: 0x70604c, ambIntensity: 1.00,
     fog: 0xe0c0a0, fogNear: 48, fogFar: 280, haze: 0.34,
     clouds: 0.42, cloudColor: 0xf8dcc0, cloudSpeed: 0.018, stars: 0,
     goldenHour: true,
@@ -979,7 +987,7 @@ export const ERAS = [
   sky: {
     top: 0x123448, horizon: 0x3e6a72, ground: 0x1a2a2a,
     sunColor: 0xffc890, sunIntensity: 1.15, sunElev: 8, sunAzim: 296,
-    ambSky: 0x4a7a8c, ambGround: 0x24343a, ambIntensity: 0.72,
+    ambSky: 0x5a8496, ambGround: 0x46585e, ambIntensity: 1.45,
     fog: 0x28454e, fogNear: 32, fogFar: 240, haze: 0.6,
     clouds: 0.5, cloudColor: 0x3a5a64, cloudSpeed: 0.014, stars: 0.5,
     holoGlow: 0.8, airTaxis: true,

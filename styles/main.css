@@ -32,6 +32,14 @@
   --f-ui:"Inter","SF Pro Text",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   --f-disp:"Inter Tight","SF Pro Display",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   --f-mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  /* Era display face + tracking. JS stamps data-era on <html>; the readout,
+     the caption and the codex headings pick it up, so the chrome is set in
+     something the decade would have used. No webfonts — everything here is a
+     stack of faces that ship with an OS. */
+  --f-era:var(--f-disp);
+  --era-track:-0.01em;
+  --era-case:none;
+  --era-slant:0deg;
 }
 
 body.bigui{ --ui:1.22; }
@@ -557,11 +565,19 @@ input[type=range]:focus-visible{ outline:2px solid var(--era-accent); outline-of
 #flash.go{ animation:shutter .4s ease-out; }
 @keyframes shutter{ 0%{opacity:0} 8%{opacity:.92} 100%{opacity:0} }
 
+/* A nudge, never a wall: portrait plays fine, so this must not block input. */
 #rotatehint{
-  position:fixed; inset:0; z-index:80; display:grid; place-items:center; text-align:center;
-  background:rgba(4,5,8,.94); color:var(--ink-dim); font-size:14px; line-height:2.2; letter-spacing:.04em;
+  position:fixed; z-index:46; left:50%; transform:translateX(-50%);
+  bottom:calc(var(--safe-b) + 210px); pointer-events:none;
+  padding:9px 15px; border-radius:999px; text-align:center;
+  background:var(--glass-2); border:1px solid var(--line); box-shadow:var(--shadow);
+  backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+  color:var(--ink-dim); font-size:12px; letter-spacing:.02em;
+  animation:hintIn .4s ease both, hintOut .6s ease 6s both;
 }
-#rotatehint div{ font-size:40px; line-height:1.5; }
+#rotatehint div{ font-size:12px; line-height:1.5; }
+@keyframes hintIn{ from{opacity:0;transform:translateX(-50%) translateY(10px)} to{opacity:1;transform:translateX(-50%)} }
+@keyframes hintOut{ to{opacity:0} }
 
 body.uihidden #hud > *:not(#toasts):not(#subtitle),
 body.uihidden #topright{ opacity:0 !important; pointer-events:none !important; }
@@ -575,6 +591,19 @@ body.reduce * { animation-duration:.001s !important; transition-duration:.06s !i
   .tl-caption{ font-size:calc(9.5px*var(--ui)); letter-spacing:.12em; }
   #topright{ top:auto; bottom:calc(var(--safe-b) + 12px); right:calc(var(--safe-r) + 10px);
     flex-direction:column; }
+  /* On a phone the bottom-right corner belongs to the thumb: the action,
+     sprint and jump buttons live there. Putting the icon cluster in the same
+     corner made three of the five HUD buttons unreachable the moment a
+     prompt appeared, because the action button sits on top of them. Keep the
+     icons along the top on touch layouts instead, clear of the timeline. */
+  body.touchui #topright{
+    top:calc(var(--safe-t) + 66px); bottom:auto;
+    right:calc(var(--safe-r) + 10px);
+    flex-direction:row; gap:8px;
+  }
+  body.touchui.lefty #topright{ right:auto; left:calc(var(--safe-l) + 10px); flex-direction:row-reverse; }
+  /* The era card shares that band, so it yields the right-hand third. */
+  body.touchui #eracard{ max-width:calc(100vw - 232px); }
   #navcluster{ display:none; }
   #eracard{ max-width:calc(100vw - 90px); bottom:auto; top:calc(var(--safe-t) + 74px);
     left:calc(var(--safe-l) + 10px); padding:7px 11px 7px 7px; }
@@ -607,3 +636,47 @@ body.reduce * { animation-duration:.001s !important; transition-duration:.06s !i
 @media (prefers-reduced-motion:reduce){
   *{ animation-duration:.001s !important; transition-duration:.08s !important; }
 }
+
+
+/* ══════════════════════ era typography ══════════════════════
+   1945 newspaper serif, 1965 wide grotesque, 1985 heavy italic, 2005 the
+   web-safe faces of the period, 2025 the system UI stack, 2055 tracked-out
+   mono. It is the cheapest possible way to make the chrome belong to the
+   decade the world is currently in. */
+html[data-era="1945"]{
+  --f-era:"Playfair Display","Times New Roman",Times,Georgia,serif;
+  --era-track:.06em; --era-case:uppercase;
+}
+html[data-era="1965"]{
+  --f-era:"Futura","Century Gothic","Avenir Next",Avenir,"Trebuchet MS",sans-serif;
+  --era-track:.14em; --era-case:uppercase;
+}
+html[data-era="1985"]{
+  --f-era:"Helvetica Neue",Helvetica,Impact,"Arial Black",Arial,sans-serif;
+  --era-track:-.02em; --era-case:uppercase; --era-slant:-8deg;
+}
+html[data-era="2005"]{
+  --f-era:Verdana,Tahoma,"Segoe UI",Geneva,sans-serif;
+  --era-track:-.01em; --era-case:none;
+}
+html[data-era="2025"]{
+  --f-era:var(--f-disp);
+  --era-track:-.03em; --era-case:none;
+}
+html[data-era="2055"]{
+  --f-era:var(--f-mono);
+  --era-track:.22em; --era-case:uppercase;
+}
+
+#ecYear{
+  font-family:var(--f-era);
+  letter-spacing:var(--era-track);
+  transform:skewX(var(--era-slant));
+  transition:letter-spacing .5s ease, transform .5s ease;
+}
+#ecName, #tlThumbYear, .tl-stop b{
+  font-family:var(--f-era);
+  letter-spacing:var(--era-track);
+  text-transform:var(--era-case);
+}
+#tlCaption{ font-family:var(--f-era); letter-spacing:var(--era-track); }

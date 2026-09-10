@@ -36,6 +36,10 @@ export const SECRETS = [
   { id: 'secret:konami', era: null, icon: '🎮', title: 'Up up down down', hint: 'An old code still works here.', thread: null },
   { id: 'secret:rooftop', era: null, icon: '🏙️', title: 'Above the block', hint: 'Get onto a roof. There is a way.', thread: null },
   { id: 'secret:nightwalk', era: null, icon: '🌙', title: 'Three in the morning', hint: 'Set the clock to the hour nobody is awake.', thread: null },
+  { id: 'secret:threshold', era: null, icon: '🔤', title: 'The threshold', hint: 'Somebody’s name is still in the doorway of 88 Fifth.', thread: 'threshold' },
+  { id: 'secret:cornerstone', era: null, icon: '🧱', title: 'The cornerstone', hint: 'Whoever built the Hotel Vernon signed it.', thread: null },
+  { id: 'secret:feeder', era: null, icon: '🐦', title: 'Half past two', hint: 'The birds are not evenly spread. Find out why.', thread: null },
+  { id: 'secret:deadbulb', era: null, icon: '💡', title: 'One bulb', hint: 'Count along the bottom rail of the marquee.', thread: null },
 ];
 
 export const THREADS = [
@@ -99,6 +103,19 @@ export const THREADS = [
       { year: 2025, label: 'Under the new tree', secret: 'secret:library' },
       { year: 2055, label: 'Under the roots. Still there', secret: 'secret:seeds' },
     ],
+  },
+  {
+    id: 'threshold', icon: '🔤', title: 'The threshold',
+    blurb: 'A terrazzo doorway laid in 1931 for a shop that closed in 1937. Six tenants have laid a floor up to the edge of it and stopped.',
+    beads: [
+      { year: 1945, label: 'Eight years after Woolton’s folded' },
+      { year: 1965, label: 'Records stacked on top of it' },
+      { year: 1985, label: 'Under the video store’s carpet tiles' },
+      { year: 2005, label: 'A rug over it. The corner shows' },
+      { year: 2025, label: 'Uncovered again, and photographed' },
+      { year: 2055, label: 'Listed. The only listed floor on the block' },
+    ],
+    perEra: 'secret:threshold',
   },
   {
     id: 'clock', icon: '🕓', title: 'The bank clock',

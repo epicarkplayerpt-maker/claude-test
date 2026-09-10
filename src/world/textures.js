@@ -251,9 +251,9 @@ function asphaltCanvas() {
     ctx.fillRect(rnd.range(0, S), rnd.range(0, S), rnd.range(0.7, 2.6), rnd.range(0.7, 2.6));
   }
   // Crack network + tar-sealed repairs (the repairs are darker and glossier)
-  ctx.strokeStyle = 'rgba(118,118,118,0.42)';
-  for (let i = 0; i < 16; i++) {
-    ctx.lineWidth = rnd.range(0.8, 2.2);
+  ctx.strokeStyle = 'rgba(150,150,150,0.30)';
+  for (let i = 0; i < 14; i++) {
+    ctx.lineWidth = rnd.range(0.7, 1.7);
     let x = rnd.range(0, S), y = rnd.range(0, S), a = rnd.range(0, 7);
     ctx.beginPath(); ctx.moveTo(x, y);
     for (let s = 0; s < 18; s++) {
@@ -263,9 +263,9 @@ function asphaltCanvas() {
     }
     ctx.stroke();
   }
-  ctx.strokeStyle = 'rgba(150,150,150,0.55)';
-  for (let i = 0; i < 8; i++) {
-    ctx.lineWidth = rnd.range(4, 10);
+  ctx.strokeStyle = 'rgba(176,176,176,0.38)';
+  for (let i = 0; i < 7; i++) {
+    ctx.lineWidth = rnd.range(4, 9);
     ctx.lineCap = 'round';
     let x = rnd.range(0, S), y = rnd.range(0, S), a = rnd.range(0, 7);
     ctx.beginPath(); ctx.moveTo(x, y);
@@ -408,6 +408,9 @@ export const Tex = {
   metal: () => memo('metal', () => toTexture(metalCanvas())),
   rust: () => memo('rust', () => toTexture(rustCanvas(), { clamp: true })),
   grime: () => memo('grime', () => toTexture(grimeCanvas(), { clamp: true })),
+  glow: () => memo('glow', () => toTexture(glowCanvas(2.2), { clamp: true })),
+  glowTight: () => memo('glowT', () => toTexture(glowCanvas(4.0), { clamp: true })),
+  glowWide: () => memo('glowW', () => toTexture(glowCanvas(1.4), { clamp: true })),
 };
 
 /* ══════════════════════════ typography ══════════════════════════ */
@@ -434,15 +437,27 @@ function fitText(ctx, text, font, maxW, startPx, minPx = 8) {
   return px;
 }
 
+/**
+ * Draw text one glyph at a time with extra letter-spacing.
+ *
+ * The pen position advances by each glyph's own width, so the glyphs must be
+ * drawn left-aligned regardless of what the caller left `textAlign` set to —
+ * with it on `center` every character is re-centred on the pen, which pushes
+ * narrow letters away from their neighbours and turns DR ZHIVAGO into
+ * "DR . ZH IVAGO".
+ */
 function tracked(ctx, text, x, y, spacing, align = 'center') {
   let total = 0;
   for (const ch of text) total += ctx.measureText(ch).width + spacing;
   total -= spacing;
   let cx = align === 'center' ? x - total / 2 : align === 'right' ? x - total : x;
+  const prev = ctx.textAlign;
+  ctx.textAlign = 'left';
   for (const ch of text) {
     ctx.fillText(ch, cx, y);
     cx += ctx.measureText(ch).width + spacing;
   }
+  ctx.textAlign = prev;
   return total;
 }
 
@@ -1029,7 +1044,7 @@ export function marqueeTexture(lines, opts = {}) {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 
   const g = ctx.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, '#f4efe2'); g.addColorStop(0.5, '#e8e2d2'); g.addColorStop(1, '#cfc8b6');
+  g.addColorStop(0, '#ddd6c4'); g.addColorStop(0.5, '#cec7b3'); g.addColorStop(1, '#b0a894');
   ctx.fillStyle = style === 'holo' ? '#05080c' : g;
   ctx.fillRect(0, 0, w, h);
 
@@ -1416,6 +1431,28 @@ export function roadMarkTexture(kind, opts = {}) {
       break;
     default: break;
   }
+  return c;
+}
+
+/**
+ * A soft radial falloff, used for every glow in the scene: lamp halos, the
+ * pools of light they throw on the pavement, headlight beams, window spill.
+ * Cheap billboards like these do more for a night street than another dozen
+ * real lights would, and they cost one shared texture.
+ */
+function glowCanvas(power = 2.2) {
+  const N = 128;
+  const { c, ctx } = makeCanvas(N, N);
+  const img = ctx.createImageData(N, N);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const dx = (x - N / 2) / (N / 2), dy = (y - N / 2) / (N / 2);
+    const d = Math.min(1, Math.hypot(dx, dy));
+    const a = Math.pow(1 - d, power);
+    const i = (y * N + x) * 4;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+    img.data[i + 3] = Math.round(clamp01(a) * 255);
+  }
+  ctx.putImageData(img, 0, 0);
   return c;
 }
 

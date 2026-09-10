@@ -44,6 +44,9 @@ export class HUD {
     this._factTimer = 0;
     this._factIdx = 0;
     this.isTouch = opts.touch;
+    // Touch layouts move the icon cluster out of the thumb zone — see the
+    // `body.touchui` rules in main.css.
+    document.body.classList.toggle('touchui', !!opts.touch);
 
     this.build();
     this.bind();
@@ -278,11 +281,16 @@ export class HUD {
     }
 
     /* Orientation nudge on small landscape-less screens */
+    // Shown once, briefly, and never again — and it can never swallow a tap.
     const checkRotate = () => {
       const el = $('rotatehint');
-      if (!el) return;
-      const need = this.isTouch && window.innerHeight > window.innerWidth && window.innerWidth < 420;
-      el.classList.toggle('hidden', !need || !this._playing);
+      if (!el || this._rotateShown) return;
+      const need = this.isTouch && window.innerHeight > window.innerWidth
+        && window.innerWidth < 460 && this._playing;
+      if (!need) return;
+      this._rotateShown = true;
+      el.classList.remove('hidden');
+      setTimeout(() => el.classList.add('hidden'), 7000);
     };
     on(window, 'resize', checkRotate);
     on(window, 'orientationchange', () => setTimeout(checkRotate, 300));
@@ -348,6 +356,9 @@ export class HUD {
   setEra(i, immediate = false) {
     this.eraIndex = i;
     const era = ERAS[i];
+    // The chrome is set in the decade's own typeface — see the era typography
+    // block in main.css. The warp stamps this too, at its midpoint.
+    document.documentElement.dataset.era = String(era.year);
     this.previewEra(i);
     $('tlTrack')?.setAttribute('aria-valuenow', String(i));
     $('tlTrack')?.setAttribute('aria-valuetext', String(era.year));

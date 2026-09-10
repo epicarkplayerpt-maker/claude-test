@@ -11,12 +11,13 @@
 
 import * as THREE from 'three';
 import { Bucket, quad } from './geom.js';
+import { Tex } from './textures.js';
 import {
   toTexture, roadMarkTexture, signTexture, posterTexture, billboardTexture, graffitiTexture,
 } from './textures.js';
 import { BLOCK, LAMP } from '../data/eras.js';
 import { Rand } from '../core/rng.js';
-import { lerp } from '../core/mathx.js';
+import { lerp, TAU } from '../core/mathx.js';
 
 const HALF = BLOCK.half;                    // 30 — building line
 const CURB = HALF + BLOCK.sidewalk;         // 34.2 — kerb line
@@ -29,7 +30,7 @@ const WORLD = 96;
 export function buildStreet(era, eraIdx, ctx) {
   const { mats } = ctx;
   const rnd = new Rand(`street:${era.year}`);
-  const out = { group: new THREE.Group(), interactables: [], lights: [], animated: [], blockers: [] };
+  const out = { group: new THREE.Group(), interactables: [], lights: [], animated: [], blockers: [], glows: [], pools: [] };
   out.group.name = `street@${era.year}`;
 
   /* Carriageway — one big plane; the block and sidewalks sit on top. */
@@ -158,7 +159,49 @@ export function buildStreet(era, eraIdx, ctx) {
   /* Furniture */
   buildProps(out, ctx, era, eraIdx, rnd);
 
+  /* Night glow: halos at every emitter and pools of light on the pavement.
+     One additive draw call each, faded in by the day/night cycle. */
+  buildNightGlow(out, ctx, era, eraIdx);
+
   return out;
+}
+
+function buildNightGlow(out, ctx, era, eraIdx) {
+  const { mats } = ctx;
+  if (!out.glows.length && !out.pools.length) return;
+
+  const halos = new THREE.Group();
+  const haloMat = mats.glow(0xffffff, { strength: 1.0, tex: Tex.glow() });
+  const haloGeo = new THREE.PlaneGeometry(1, 1);
+  for (const g of out.glows) {
+    const m = new THREE.Mesh(haloGeo, haloMat);
+    m.position.set(g.x, g.y, g.z);
+    m.scale.setScalar(g.r * 2.4);
+    m.userData.billboard = true;
+    m.material = haloMat;
+    halos.add(m);
+    // Tint per lamp by baking the colour into a per-mesh material clone only
+    // when it actually differs — most eras use one lamp colour throughout.
+  }
+  halos.userData.mat = haloMat;
+  haloMat.color.set(era.lamp ? LAMP[era.lamp].color : 0xffe0b0).multiplyScalar(1.0);
+  out.group.add(halos);
+  out.nightGlow = halos;
+
+  const pools = new Bucket();
+  for (const p of out.pools) {
+    // A flat disc of light on the pavement, offset just above it.
+    pools.plane(p.r * 2.2, p.r * 2.2, p.x, BLOCK.curbHeight + 0.02, p.z, 0xffffff, { x: -Math.PI / 2 });
+  }
+  const poolGeo = pools.build();
+  if (poolGeo) {
+    const poolMat = mats.glow(era.lamp ? LAMP[era.lamp].color : 0xffe0b0, { strength: 0.55, tex: Tex.glow() });
+    const pm = new THREE.Mesh(poolGeo, poolMat);
+    pm.renderOrder = 5;
+    pm.frustumCulled = false;
+    out.group.add(pm);
+    out.nightPools = pm;
+  }
 }
 
 function buildCrosswalks(out, ctx, era, eraIdx) {
@@ -284,7 +327,39 @@ function buildBackdrop(out, ctx, era, eraIdx, rnd) {
       const sz = row.axis === 'z' ? d : w;
 
       bucket.box(sx, h, sz, cx, h / 2, cz, col);
-      bucket.box(sx + 0.5, 0.5, sz + 0.5, cx, h + 0.2, cz, rnd.pick(era.palette.stone));
+      // Cornice: a two-step overhang rather than one flat cap, which is the
+      // difference between a row of buildings and a row of boxes.
+      const capCol = rnd.pick(era.palette.stone);
+      bucket.box(sx + 0.55, 0.38, sz + 0.55, cx, h + 0.19, cz, capCol);
+      bucket.box(sx + 0.30, 0.34, sz + 0.30, cx, h + 0.55, cz, capCol);
+      bucket.box(sx + 0.10, 0.55, sz + 0.10, cx, h + 1.0, cz, col);          // parapet wall
+      // Taller blocks step back, the way a zoning envelope makes them.
+      if (floors >= 7) {
+        const setH = rnd.range(3.2, 7.0);
+        bucket.box(sx * 0.66, setH, sz * 0.66, cx, h + 1.2 + setH / 2, cz, col);
+        bucket.box(sx * 0.66 + 0.4, 0.3, sz * 0.66 + 0.4, cx, h + 1.35 + setH, cz, capCol);
+      }
+
+      /* A ground floor that is not a blank wall: a dark recessed shop band
+         with a fascia over it, and on about half of them an awning. */
+      const inN = row.axis === 'z' ? -row.side : 0;
+      const inX = row.axis === 'x' ? -row.side : 0;
+      const fz = cz + (row.axis === 'z' ? inN * (d / 2 + 0.05) : 0);
+      const fx = cx + (row.axis === 'x' ? inX * (d / 2 + 0.05) : 0);
+      const across = row.axis === 'z' ? [w * 0.9, 0.12] : [0.12, w * 0.9];
+      bucket.box(across[0], 2.5, across[1], fx, 1.35, fz, 0x241f1c);
+      bucket.box(across[0], 0.85, across[1] + 0.12, fx, 3.9, fz, rnd.pick(era.palette.paint || era.palette.stone));
+      if (rnd.chance(0.45)) {
+        const proj = 1.1;
+        bucket.box(row.axis === 'z' ? w * 0.7 : proj, 0.10, row.axis === 'z' ? proj : w * 0.7,
+          fx + (row.axis === 'x' ? inX * proj / 2 : 0), 3.15,
+          fz + (row.axis === 'z' ? inN * proj / 2 : 0),
+          rnd.pick(era.palette.paint || [0x8a3a2a]));
+      }
+      if (rnd.chance(era.windowLit * 1.1 + 0.2)) {
+        litB.box(across[0] * 0.9, 1.5, across[1] + 0.1, fx, 1.7, fz + (row.axis === 'z' ? inN * 0.04 : 0),
+          rnd.pick(era.curtains || [0xffd8a0]));
+      }
 
       /* Window grid on the two faces that can be seen. */
       const faceW = row.axis === 'z' ? w : d;
@@ -324,6 +399,33 @@ function buildBackdrop(out, ctx, era, eraIdx, rnd) {
     }
   }
 
+  /* ── The rest of the city ─────────────────────────────────────
+     A ring of towers well beyond the near row, drawn flat-shaded and never
+     approachable. They exist to put a horizon behind the block: without them
+     every wide shot ends in sky two hundred metres out, and the place reads
+     as four streets on a table. */
+  {
+    const far = WORLD + 34;
+    for (let i = 0; i < 78; i++) {
+      const a = (i / 78) * TAU + rnd.range(-0.02, 0.02);
+      const r = far + rnd.range(0, 130);
+      const hh = rnd.range(18, 34) + (eraIdx >= 3 ? rnd.range(0, 62) : rnd.range(0, 22));
+      const bw = rnd.range(12, 30);
+      // Aerial perspective: the far ones wash toward the sky colour.
+      const fade = Math.min(0.72, (r - far) / 200);
+      const base = new THREE.Color(rnd.pick(era.palette.brick));
+      base.lerp(new THREE.Color(era.sky.horizon ?? era.sky.top ?? 0xb8c8d8), 0.30 + fade);
+      const tx = Math.cos(a) * r, tz = Math.sin(a) * r;
+      bucket.box(bw, hh, bw * rnd.range(0.7, 1.3), tx, hh / 2, tz, base.getHex(), { y: a });
+      if (rnd.chance(0.4)) {
+        bucket.box(bw * 0.5, rnd.range(4, 14), bw * 0.5, tx, hh + 4, tz, base.getHex(), { y: a });
+      }
+      if (eraIdx >= 3 && rnd.chance(0.3)) {
+        litB.box(bw * 0.08, bw * 0.08, bw * 0.08, tx, hh + rnd.range(1, 6), tz, 0xff4a3a);
+      }
+    }
+  }
+
   const m = bucket.mesh(mats.vcol('matte'), { name: 'backdrop' });
   if (m) out.group.add(m);
   const gm = glassB.mesh(mats.glass(era.palette.glass, { opacity: 0.5, rough: 0.1 }), { cast: false, receive: false });
@@ -351,7 +453,7 @@ function buildBackdrop(out, ctx, era, eraIdx, rnd) {
   const ad = quad(13, 6.2, bx, bh, bz + 0.4, adMat);
   out.group.add(ad);
   if (eraIdx >= 4) {
-    out.lights.push({ pos: new THREE.Vector3(bx, bh - 3, bz + 5), color: era.accent, intensity: 2.2, distance: 26, key: 'billboard' });
+    out.lights.push({ pos: new THREE.Vector3(bx, bh - 3, bz + 5), color: era.accent, intensity: 17.6, distance: 26, key: 'billboard' });
     out.animated.push({ kind: 'billboard', mesh: ad, era });
   } else if (eraIdx >= 1) {
     // Floodlights on a painted board
@@ -362,7 +464,7 @@ function buildBackdrop(out, ctx, era, eraIdx, rnd) {
     }
     const fm = fb.mesh(mats.vcol('metal'));
     if (fm) out.group.add(fm);
-    out.lights.push({ pos: new THREE.Vector3(bx, bh - 2, bz + 3), color: 0xfff0d0, intensity: 1.6, distance: 20, key: 'billboardflood' });
+    out.lights.push({ pos: new THREE.Vector3(bx, bh - 2, bz + 3), color: 0xfff0d0, intensity: 12.8, distance: 20, key: 'billboardflood' });
   }
 }
 
@@ -381,6 +483,147 @@ function walkPoint(side, t, inset) {
     case 'S': return { x: a, z: o, nx: 0, nz: 1, rot: Math.PI };
     case 'E': return { x: o, z: a, nx: 1, nz: 0, rot: -Math.PI / 2 };
     default: return { x: -o, z: a, nx: -1, nz: 0, rot: Math.PI / 2 };
+  }
+}
+
+
+/**
+ * What is actually underfoot.
+ *
+ * A pavement is never a blank slab. It is a century of other trades cutting
+ * into it and patching it back: a water valve, a coal hole nobody has opened
+ * since the boiler went, a telephone pull-box, a tree pit, the ghost of a
+ * kerb crossing, and whatever was dropped this afternoon. This is the layer
+ * that stops a street reading as an architectural model, and because it is
+ * all flat plates it costs almost nothing.
+ */
+function buildPavementDetail(b, emit, era, eraIdx, rnd, out) {
+  const Y = BLOCK.curbHeight;
+  const sides = ['N', 'S', 'E', 'W'];
+  const iron = [0x4a463e, 0x3e3a34, 0x55504a][eraIdx % 3];
+  const patch = [0x5a564e, 0x4e4a44, 0x6a655c];
+
+  /* ── Ironwork: covers, valve plates, coal holes, pull-boxes ──── */
+  for (const side of sides) {
+    for (let i = 0; i < 9; i++) {
+      const t = (i + rnd.range(0.18, 0.82)) / 9;
+      const inset = rnd.range(0.5, BLOCK.sidewalk - 0.6);
+      const p = walkPoint(side, t, inset);
+      const roll = rnd.range(0, 1);
+
+      if (roll < 0.26) {
+        // Round cast-iron cover with a raised waffle pattern.
+        const r = rnd.range(0.28, 0.36);
+        b.cylOn(r + 0.035, 0.02, p.x, Y - 0.005, p.z, 0x3a3630, null, 16);
+        b.cylOn(r, 0.028, p.x, Y, p.z, iron, null, 16);
+        for (let g = 0; g < 3; g++) {
+          const rr = r * (0.32 + g * 0.28);
+          for (let k = 0; k < 6 + g * 4; k++) {
+            const a = (k / (6 + g * 4)) * TAU + g * 0.3;
+            b.box(0.05, 0.008, 0.05, p.x + Math.cos(a) * rr, Y + 0.03, p.z + Math.sin(a) * rr,
+              0x5a544a, { y: a });
+          }
+        }
+      } else if (roll < 0.42) {
+        // Square valve or stopcock plate, set flush, usually skewed.
+        const w = rnd.range(0.16, 0.26);
+        const a = rnd.range(-0.14, 0.14);
+        b.box(w + 0.06, 0.016, w + 0.06, p.x, Y + 0.002, p.z, 0x3a3630, { y: a });
+        b.box(w, 0.022, w, p.x, Y + 0.008, p.z, iron, { y: a });
+        b.box(w * 0.5, 0.006, 0.02, p.x, Y + 0.02, p.z, 0x6a655c, { y: a });
+      } else if (roll < 0.52 && eraIdx <= 2) {
+        // Coal hole: two hinged leaves, worn smooth, bolted shut by 1965.
+        b.box(0.62, 0.02, 0.9, p.x, Y + 0.004, p.z, 0x2e2a26, { y: p.rot });
+        for (const sgn of [-1, 1]) {
+          b.box(0.27, 0.03, 0.84, p.x + Math.cos(p.rot) * sgn * 0.155, Y + 0.014,
+            p.z - Math.sin(p.rot) * sgn * 0.155, iron, { y: p.rot });
+        }
+        b.cylOn(0.035, 0.016, p.x, Y + 0.03, p.z, 0x6a655c, null, 8);
+      } else if (roll < 0.60) {
+        // Telecom pull-box — the lid legend changes with the decade.
+        b.box(0.46, 0.02, 0.34, p.x, Y + 0.004, p.z, 0x3a3630, { y: p.rot });
+        b.box(0.40, 0.026, 0.28, p.x, Y + 0.012, p.z, patch[eraIdx % 3], { y: p.rot });
+        b.box(0.22, 0.006, 0.05, p.x, Y + 0.026, p.z, 0x8a8478, { y: p.rot });
+      } else if (roll < 0.74) {
+        // A patch where somebody dug and filled: different mix, wrong colour,
+        // hard edge. Every real pavement is half patches.
+        const w = rnd.range(0.7, 1.9), d = rnd.range(0.6, 1.3);
+        b.box(w, 0.014, d, p.x, Y + 0.001, p.z, patch[rnd.int(0, 2)], { y: rnd.range(-0.1, 0.1) });
+      }
+    }
+  }
+
+  /* ── Chalk, in the decades when children played in the street ── */
+  if (eraIdx <= 1) {
+    const p = walkPoint(rnd.pick(sides), rnd.range(0.3, 0.7), 2.1);
+    const chalk = 0xd8d0c0;
+    for (let k = 0; k < 8; k++) {
+      const w = k % 3 === 2 ? 0.62 : 0.32;
+      b.box(w, 0.004, 0.3, p.x + Math.cos(p.rot) * 0, Y + 0.012 + 0.001,
+        p.z + (k - 4) * 0.34, chalk, { y: p.rot });
+      b.box(w - 0.06, 0.005, 0.24, p.x, Y + 0.014, p.z + (k - 4) * 0.34, 0xb8ae9c, { y: p.rot });
+    }
+  }
+
+  /* ── Litter: what this decade drops ───────────────────────────── */
+  const LITTER = {
+    0: [[0xe4e0d4, 0.030, 0.008, 0.014], [0xd8c8a0, 0.05, 0.01, 0.03], [0x8a7a5c, 0.09, 0.004, 0.07]],
+    1: [[0xe4e0d4, 0.030, 0.008, 0.014], [0xc83a2a, 0.026, 0.004, 0.026], [0x2a6a8a, 0.11, 0.004, 0.08]],
+    2: [[0xd8d4c8, 0.028, 0.008, 0.014], [0xe8c840, 0.028, 0.004, 0.028], [0xc03a6a, 0.13, 0.004, 0.09]],
+    3: [[0xf0efe8, 0.055, 0.045, 0.055], [0x8a8a90, 0.03, 0.003, 0.03], [0xd8d8d8, 0.10, 0.004, 0.07]],
+    4: [[0x6a4a30, 0.058, 0.05, 0.058], [0x2a8a5a, 0.03, 0.004, 0.03], [0xf0f0f0, 0.09, 0.004, 0.06]],
+    5: [[0x9fd8c0, 0.05, 0.035, 0.05], [0x8adcff, 0.02, 0.004, 0.02], [0xd8e8e0, 0.07, 0.003, 0.05]],
+  }[eraIdx];
+  const litterN = eraIdx === 2 ? 90 : eraIdx === 5 ? 22 : eraIdx === 4 ? 34 : 58;
+  for (let i = 0; i < litterN; i++) {
+    const side = rnd.pick(sides);
+    const p = walkPoint(side, rnd.range(0.03, 0.97), rnd.range(0.25, BLOCK.sidewalk - 0.35));
+    const [col, w, h, d] = rnd.pick(LITTER);
+    b.box(w, h, d, p.x + rnd.range(-0.2, 0.2), Y + h / 2 + 0.004, p.z + rnd.range(-0.2, 0.2),
+      col, { y: rnd.range(0, TAU), x: rnd.chance(0.3) ? rnd.range(-0.4, 0.4) : 0 });
+  }
+
+  /* ── Gum. Nobody removes gum. ─────────────────────────────────── */
+  for (let i = 0; i < (eraIdx >= 2 && eraIdx <= 4 ? 70 : 30); i++) {
+    const p = walkPoint(rnd.pick(sides), rnd.range(0.02, 0.98), rnd.range(0.3, BLOCK.sidewalk - 0.4));
+    b.cylOn(rnd.range(0.018, 0.036), 0.003, p.x + rnd.range(-0.25, 0.25), Y + 0.002,
+      p.z + rnd.range(-0.25, 0.25), rnd.pick([0x2e2a26, 0x3a3630, 0x46423a]), null, 6);
+  }
+
+  /* ── Where somebody feeds the birds ───────────────────────────
+     The flock is not scattered evenly around the block; it is thickest here,
+     and has been for eighty years, because at about half past two somebody
+     comes out and empties a paper bag onto this square of pavement. */
+  {
+    const p = walkPoint('N', 0.31, 2.6);
+    for (let i = 0; i < 120; i++) {
+      const a = rnd.range(0, TAU), r = Math.sqrt(rnd.range(0, 1)) * 0.72;
+      b.box(0.016, 0.008, 0.016, p.x + Math.cos(a) * r, Y + 0.006, p.z + Math.sin(a) * r,
+        rnd.pick([0xd8c890, 0xc8b478, 0xe0d4a8, 0x9a8a5c]), { y: rnd.range(0, TAU) });
+    }
+    // The bag, folded flat and weighted with a stone, waiting for tomorrow.
+    b.box(0.16, 0.02, 0.22, p.x + 0.9, Y + 0.012, p.z - 0.4, 0xc8b490, { y: 0.4 });
+    b.sphere(0.05, p.x + 0.9, Y + 0.04, p.z - 0.4, 0x6a655c, true);
+    out.interactables.push({
+      id: 'secret:feeder', secret: true,
+      pos: new THREE.Vector3(p.x, BLOCK.curbHeight + 0.4, p.z), radius: 2.6,
+      title: 'Half past two', sub: 'Seed on the pavement', kind: 'secret',
+      body: [{ type: 'p', text: [
+        'Millet and cracked corn, thrown in an arc from a paper bag, still in the shape of the throw.',
+        'It was Mrs Prazak from 1946 until she died, then her son, then a woman from the third floor who never gave her name, then the man who runs the shop on the corner — whichever shop that is this decade. None of them has ever met the one before. Each of them started because the birds were already waiting.',
+      ].join(' ') }],
+      foot: `Vine Street · ${era.year}`,
+    });
+  }
+
+  /* ── Studs: the 2055 pavement knows where everyone is ─────────── */
+  if (eraIdx === 5) {
+    for (const side of sides) {
+      for (let i = 0; i < 22; i++) {
+        const p = walkPoint(side, (i + 0.5) / 22, 0.42);
+        emit.cylOn(0.028, 0.006, p.x, Y + 0.004, p.z, 0x3ad8c0, null, 8);
+      }
+    }
   }
 }
 
@@ -423,6 +666,9 @@ function buildProps(out, ctx, era, eraIdx, rnd) {
       buildProp(kind, b, emit, glass, p, era, eraIdx, rnd, out, ctx, i);
     }
   }
+
+  /* Ironwork, hatches and the day's litter */
+  buildPavementDetail(b, emit, era, eraIdx, rnd, out);
 
   /* Alley dressing */
   buildAlley(b, emit, out, ctx, era, eraIdx, rnd);
@@ -495,11 +741,15 @@ function buildLamp(b, emit, glass, p, spec, era, out, eraIdx) {
       emit.cyl(0.062, h * 0.7, x, y0 + h * 0.45, z, spec.color, null, 8);
   }
 
+  const lampX = x + inward.x * (spec.pole === 'fluted' ? 0 : 2.0);
+  const lampZ = z + inward.z * (spec.pole === 'fluted' ? 0 : 2.0);
   out.lights.push({
-    pos: new THREE.Vector3(x + inward.x * 2.0, y0 + h - 0.2, z + inward.z * 2.0),
-    color: spec.color, intensity: spec.intensity * 4.2, distance: h * 3.4,
+    pos: new THREE.Vector3(lampX, y0 + h - 0.2, lampZ),
+    color: spec.color, intensity: spec.intensity * 34, distance: h * 3.4,
     key: `lamp:${x.toFixed(0)}:${z.toFixed(0)}`, night: true,
   });
+  out.glows.push({ x: lampX, y: y0 + h - 0.12, z: lampZ, r: 2.6 * spec.intensity, color: spec.color, kind: 'halo' });
+  out.pools.push({ x: lampX, z: lampZ, r: h * 0.95, color: spec.color, strength: spec.intensity });
 
   // Wire from a lamp to the building line in the older eras.
   if (eraIdx === 0) b.rod(x, y0 + h * 0.86, z, x - p.nx * 3.4, y0 + h * 0.86 + 0.6, z - p.nz * 3.4, 0.012, 0x2a2a2a);
@@ -662,7 +912,7 @@ function buildProp(kind, b, emit, glass, p, era, eraIdx, rnd, out, ctx, index) {
         const ex = x + (w / 2 + 0.1) * along.x, ez = z + (w / 2 + 0.1) * along.z;
         b.box(0.1 * along.x + 1.3 * along.z, 1.9, 0.1 * along.z + 1.3 * along.x, ex, y + 1.4, ez, frame);
         emit.box(0.02 * along.x + 1.1 * along.z, 1.7, 0.02 * along.z + 1.1 * along.x, ex + inward.x * 0.07, y + 1.4, ez + inward.z * 0.07, 0xe8e8f0);
-        out.lights.push({ pos: new THREE.Vector3(ex, y + 1.4, ez), color: 0xd8e8ff, intensity: 1.2, distance: 6, key: `shelter${index}`, night: true });
+        out.lights.push({ pos: new THREE.Vector3(ex, y + 1.4, ez), color: 0xd8e8ff, intensity: 9.6, distance: 6, key: `shelter${index}`, night: true });
       }
       if (kind === 'busShelterLED') emit.box(w - 0.4, 0.06, 0.1, x - inward.x * (d - 0.1), y + h - 0.1, z - inward.z * (d - 0.1), 0xdcecff, R);
       out.blockers.push({ x: x - inward.x * d / 2, z: z - inward.z * d / 2, r: 1.6 });
@@ -810,7 +1060,7 @@ function buildProp(kind, b, emit, glass, p, era, eraIdx, rnd, out, ctx, index) {
       for (const s of [-1, 1]) b.cylOn(0.13, 3.4, x + s * w / 2 * Math.abs(inward.z), y, z + s * w / 2 * Math.abs(inward.x), 0x5a6a6a, null, 8);
       b.box(w * Math.abs(inward.z) + 2.2 * Math.abs(inward.x), 0.14, w * Math.abs(inward.x) + 2.2 * Math.abs(inward.z), x, y + 3.5, z, 0x1a2a3a, R);
       emit.box(w * 0.9 * Math.abs(inward.z), 0.04, w * 0.9 * Math.abs(inward.x), x, y + 3.4, z, 0xffe6bd, R);
-      out.lights.push({ pos: new THREE.Vector3(x, y + 3.2, z), color: 0xffe6bd, intensity: 2, distance: 9, key: `canopy${index}`, night: true });
+      out.lights.push({ pos: new THREE.Vector3(x, y + 3.2, z), color: 0xffe6bd, intensity: 16.0, distance: 9, key: `canopy${index}`, night: true });
       break;
     }
     case 'benchGlow': buildStreetBench(b, emit, x, z, y, rot, true); block(1.0); break;
@@ -835,7 +1085,7 @@ function buildProp(kind, b, emit, glass, p, era, eraIdx, rnd, out, ctx, index) {
       m.rotation.y = rot + Math.PI;
       out.group.add(m);
       out.animated.push({ kind: 'holoAd', mesh: m, seed: rnd.f() });
-      out.lights.push({ pos: new THREE.Vector3(x, 3.6, z), color: 0x56d0e0, intensity: 1.4, distance: 8, key: `holo${index}`, night: true });
+      out.lights.push({ pos: new THREE.Vector3(x, 3.6, z), color: 0x56d0e0, intensity: 11.2, distance: 8, key: `holo${index}`, night: true });
       break;
     }
     case 'seedLibrary':
@@ -977,7 +1227,7 @@ function buildAlley(b, emit, out, ctx, era, eraIdx, rnd) {
   emit.sphere(0.09, 5.55, by, z0 + 8, eraIdx >= 4 ? 0xdcecff : 0xffd8a0, true);
   out.lights.push({
     pos: new THREE.Vector3(5.6, by, z0 + 8),
-    color: eraIdx >= 4 ? 0xdcecff : 0xffd8a0, intensity: 2.6, distance: 9, key: 'alley', night: true,
+    color: eraIdx >= 4 ? 0xdcecff : 0xffd8a0, intensity: 20.8, distance: 9, key: 'alley', night: true,
   });
 
   // The tag. Painted in 1985, covered in 2005, restored in 2055.

@@ -15,6 +15,7 @@ import { buildLot, buildingHeight } from './buildings.js';
 import { buildStreet } from './street.js';
 import { Traffic } from './vehicles.js';
 import { Crowd } from './pedestrians.js';
+import { Flock } from './birds.js';
 import { Rand } from '../core/rng.js';
 import { clamp, clamp01, damp, lerp, resolveAABB } from '../core/mathx.js';
 
@@ -44,13 +45,18 @@ export class City {
     this.sharedMats = new MatLib(this.scene.environment || null, { noWarp: true });
     this.traffic = new Traffic(this.scene, this.sharedMats, this.quality);
     this.crowd = null;
+    this.flock = null;
     this.signals = this.traffic.signals;
 
     this.currentIdx = -1;
     this.otherIdx = -1;
 
     /* ── Light budget ─────────────────────────────────────────── */
-    const nLights = this.quality.windowLights >= 1 ? 7 : this.quality.windowLights >= 0.7 ? 5 : 3;
+    // Real point lights are the expensive kind of light, so they are pooled and
+    // handed to whichever emitters are nearest the camera. Sixteen is enough
+    // that a night street has lamps, shop windows, neon and headlights all
+    // casting at once rather than taking turns.
+    const nLights = this.quality.windowLights >= 1 ? 16 : this.quality.windowLights >= 0.7 ? 10 : 5;
     this.lightPool = [];
     for (let i = 0; i < nLights; i++) {
       const l = new THREE.PointLight(0xffffff, 0, 12, 2);
@@ -102,6 +108,8 @@ export class City {
       record.lights.push(...r.lights);
       record.animated.push(...r.animated);
       if (r.blockers) record.blockers.push(...r.blockers);
+      if (r.nightGlow) record.nightGlow = r.nightGlow;
+      if (r.nightPools) record.nightPools = r.nightPools;
     };
 
     const steps = LOTS.length + 1;
@@ -160,9 +168,11 @@ export class City {
     this.lastUsed[idx] = ++this.tick;
 
     if (!this.crowd) this.crowd = new Crowd(this.scene, this.sharedMats, 56);
+    if (!this.flock) this.flock = new Flock(this.scene, this.sharedMats, 20);
 
     this.traffic.populate(ERAS[idx], idx, this.quality.traffic);
     this.crowd.populate(ERAS[idx], idx, this.quality.crowd);
+    this.flock.populate(ERAS[idx], idx, this.quality.crowd);
     this._rebuildLightCandidates();
     return rec;
   }
@@ -193,6 +203,7 @@ export class City {
 
     this.traffic.populate(ERAS[toIdx], toIdx, this.quality.traffic);
     this.crowd.populate(ERAS[toIdx], toIdx, this.quality.crowd);
+    this.flock?.populate(ERAS[toIdx], toIdx, this.quality.crowd);
     this._rebuildLightCandidates();
     this._trim();
   }
@@ -202,6 +213,10 @@ export class City {
     if (!this.eras[toIdx]) return;
     this.traffic.populate(ERAS[toIdx], toIdx, this.quality.traffic);
     this.crowd.populate(ERAS[toIdx], toIdx, this.quality.crowd);
+    // The birds scatter at the moment the decade changes, which is the only
+    // reaction anything in the scene has to the warp itself.
+    this.flock?.populate(ERAS[toIdx], toIdx, this.quality.crowd);
+    if (this.flock) this.flock.startle = 1;
   }
 
   get current() { return this.eras[this.currentIdx]; }
@@ -236,7 +251,7 @@ export class City {
     for (const c of cands) {
       if (c.night && nightFactor < 0.06) continue;
       const d = c.pos.distanceToSquared(camPos);
-      if (d > 42 * 42) continue;
+      if (d > 56 * 56) continue;
       scored.push({ c, d });
     }
     scored.sort((a, b) => a.d - b.d);
@@ -258,13 +273,36 @@ export class City {
 
   update(dt, time, camPos, daylight, audio) {
     this._updateLights(dt, camPos, daylight);
-    this.traffic.update(dt, camPos, audio);
-    this.crowd?.update(dt, this.signals, camPos, this.blockers);
+    this.traffic.update(dt, camPos, audio, daylight);
+    this.crowd?.update(dt, this.signals, camPos, this.blockers, time);
+    this.flock?.update(dt, time, camPos);
 
     for (const idx of [this.currentIdx, this.otherIdx]) {
       const rec = idx >= 0 ? this.eras[idx] : null;
       if (!rec || !rec.group.visible) continue;
       this._animate(rec, dt, time, camPos, daylight);
+      this._nightGlow(rec, dt, camPos, daylight);
+    }
+  }
+
+  /**
+   * Fade the additive night layer in as the sun goes down, and turn the lamp
+   * halos to face the camera. Billboarding by hand here (rather than with
+   * `Sprite`) keeps them in the same single draw call.
+   */
+  _nightGlow(rec, dt, camPos, daylight) {
+    const night = clamp01(1.15 - daylight * 1.5);
+    if (rec.nightGlow) {
+      const mat = rec.nightGlow.userData.mat;
+      if (mat) mat.opacity = damp(mat.opacity, night * 0.85, 4, dt);
+      rec.nightGlow.visible = night > 0.02;
+      if (rec.nightGlow.visible) {
+        for (const m of rec.nightGlow.children) m.lookAt(camPos);
+      }
+    }
+    if (rec.nightPools) {
+      rec.nightPools.material.opacity = damp(rec.nightPools.material.opacity, night * 0.42, 4, dt);
+      rec.nightPools.visible = night > 0.02;
     }
   }
 
@@ -379,6 +417,7 @@ export class City {
     this.sharedMats.dispose();
     this.traffic.dispose();
     this.crowd?.dispose();
+    this.flock?.dispose();
     for (const l of this.lightPool) this.scene.remove(l);
     this.scene.remove(this.root);
   }

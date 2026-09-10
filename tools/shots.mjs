@@ -34,6 +34,14 @@ const SHOTS = {
   alley:    [7.5, 0, 40, 3.1416, 0.10],
   street:   [0, 0, 40, 3.1416, -0.02],
   aerial:   [-52, 46, -52, 0.72, -0.52],
+  // Close on the shop windows — this is where the interiors live.
+  shopdrug:   [-2, 0, -33.4, 0.0, 0.03],
+  shoparcade: [-2.5, 0, 33.4, 3.1416, 0.03],
+  shopdime:   [33.4, 0, 0, -1.5708, 0.03],
+  shopgrocer: [-33.4, 0, -1, 1.5708, 0.03],
+  // Down the kerb line — where the flock gathers.
+  kerb:       [30, 0, -36, -0.55, -0.08],
+  kerb2:      [-14, 0, -33.0, 1.25, -0.10],
 };
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -65,21 +73,29 @@ page.on('pageerror', (e) => logs.push(`[PAGEERROR] ${e.message}\n${(e.stack || '
 
 await page.goto('http://127.0.0.1:8123/', { waitUntil: 'load', timeout: 60000 });
 await page.waitForFunction(() => window.__ready === true, null, { timeout: 120000 });
-await page.evaluate(() => document.getElementById('hud')?.classList.add('hidden'));
+// Enter the scene, then strip the chrome so the frames are pure render.
+await page.click('#btnStart');
+await page.waitForTimeout(1200);
+await page.evaluate(() => {
+  for (const id of ['hud', 'title', 'touch', 'rotatehint']) document.getElementById(id)?.classList.add('hidden');
+});
 
 const names = ONLY || Object.keys(SHOTS);
 for (const eraIdx of ERAS) {
   await page.evaluate(async (i) => { await window.__setEra(i); }, eraIdx);
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(2800);
+  await page.evaluate(() => {
+    for (const id of ['hud', 'title', 'touch', 'rotatehint']) document.getElementById(id)?.classList.add('hidden');
+  });
   for (const name of names) {
     const s = SHOTS[name];
     if (!s) continue;
     await page.evaluate(([x, y, z, yaw, pitch, fly]) => {
+      window.__setFly?.(fly);
       window.__teleport(x, y, z, yaw);
       window.__setPitch?.(pitch);
-      window.__setFly?.(fly);
     }, [...s, s[1] > 5]);
-    await page.waitForTimeout(1400);
+    await page.waitForTimeout(1600);
     await page.screenshot({ path: join(OUT, `${eraIdx}-${name}.png`) });
   }
 }

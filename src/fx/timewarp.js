@@ -163,6 +163,9 @@ export class TimeWarp {
     root.setProperty('--era-accent', '#' + accent.getHexString());
     root.setProperty('--era-accent-2', '#' + accent2.getHexString());
     root.setProperty('--era-glow', `0 0 24px rgba(${Math.round(accent.r * 255)},${Math.round(accent.g * 255)},${Math.round(accent.b * 255)},.38)`);
+    // The display face switches at the midpoint of the wipe rather than
+    // crossfading, because half a serif is not a font.
+    document.documentElement.dataset.era = String((t < 0.5 ? A : B).year);
   }
 
   /** Progress 0..1, or 0 when idle. */

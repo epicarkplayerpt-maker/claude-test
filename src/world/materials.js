@@ -84,7 +84,11 @@ export function patchWarp(mat, side = 1) {
   mat.userData._warped = true;
   mat.userData.eraSideU = sideU;
 
-  mat.onBeforeCompile = (shader) => {
+  // A material may already carry its own shader hook (see `vcolLit`), so chain
+  // rather than clobber — the warp is an overlay on whatever it was doing.
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (shader, renderer) => {
+    if (prev) prev.call(mat, shader, renderer);
     Object.assign(shader.uniforms, WARP, { uEraSide: sideU });
 
     shader.vertexShader = shader.vertexShader
@@ -109,8 +113,31 @@ export function patchWarp(mat, side = 1) {
     mat.userData.shader = shader;
   };
   // Force a distinct program so patched and unpatched variants don't collide.
-  mat.customProgramCacheKey = () => 'tbwarp';
+  // `progTag` keeps two differently-hooked materials from sharing one program.
+  const tag = mat.userData.progTag || '';
+  mat.customProgramCacheKey = () => 'tbwarp|' + tag;
   return mat;
+}
+
+/**
+ * Wind.
+ *
+ * One shared uniform block, read by every leaf on the block. Displacing the
+ * canopy in the vertex shader means a street tree, a window box and a green
+ * wall all move together in the same gust for the cost of three uniforms, and
+ * nothing on the CPU has to know that foliage exists.
+ */
+export const WIND = {
+  uWindTime: { value: 0 },
+  uWindDir: { value: new THREE.Vector2(0.82, 0.57) },
+  uWindAmt: { value: 0.16 },
+};
+
+/** Point and strengthen the wind — weather and era both move it. */
+export function setWind({ time, dir, amount }) {
+  if (time !== undefined) WIND.uWindTime.value = time;
+  if (dir !== undefined) WIND.uWindDir.value.set(Math.cos(dir), Math.sin(dir));
+  if (amount !== undefined) WIND.uWindAmt.value = amount;
 }
 
 export function setWarp({ active, radius, center, width, color, time }) {
@@ -186,6 +213,7 @@ export class MatLib {
     m.userData.wantsEnv = env;
     if (env && this.env) m.envMap = this.env;
     if (warp && !this.noWarp) patchWarp(m, side);
+    else if (m.userData.progTag) { const t = m.userData.progTag; m.customProgramCacheKey = () => t; }
     this.all.push(m);
     return m;
   }
@@ -300,12 +328,15 @@ export class MatLib {
     const params = {
       matte: { roughness: 0.82, metalness: 0.0, env: false },
       gloss: { roughness: 0.32, metalness: 0.12, env: true },
+      // Automotive paint: a hard clearcoat sheen is most of what makes a dark
+      // 1940s saloon read as glossy black rather than as a black hole.
+      car: { roughness: 0.16, metalness: 0.16, env: true },
       metal: { roughness: 0.36, metalness: 0.82, env: true },
       rough: { roughness: 0.96, metalness: 0.0, env: false },
     }[kind] || { roughness: 0.8, metalness: 0, env: false };
     return this._get(key, () => new THREE.MeshStandardMaterial({
       vertexColors: true, roughness: params.roughness, metalness: params.metalness,
-      envMapIntensity: 0.9,
+      envMapIntensity: kind === 'car' ? 1.9 : kind === 'metal' ? 1.4 : 0.9,
     }), { side, env: params.env });
   }
 
@@ -391,13 +422,51 @@ export class MatLib {
     return m;
   }
 
+  /**
+   * Additive billboard glow — lamp halos, light pools, headlight beams.
+   * Never occludes, never writes depth, and is driven entirely by opacity so
+   * the whole set can be faded in as dusk falls.
+   */
+  glow(color, { strength = 1.0, tex = null, depthWrite = false } = {}) {
+    const m = new THREE.MeshBasicMaterial({
+      map: tex, color: new THREE.Color(color).multiplyScalar(strength),
+      transparent: true, opacity: 0, depthWrite, depthTest: true,
+      blending: THREE.AdditiveBlending, toneMapped: false, fog: true,
+      side: THREE.DoubleSide,
+    });
+    this.all.push(m);
+    return m;
+  }
+
   /** Foliage: double-sided, alpha-tested, with a touch of translucency fake. */
   foliage(color, { rough = 0.86, side = undefined, map = null } = {}) {
     const key = `foliage|${color}|${map ? map.uuid : 0}`;
-    return this._get(key, () => new THREE.MeshStandardMaterial({
-      color, roughness: rough, metalness: 0,
-      side: THREE.DoubleSide, map, transparent: !!map, alphaTest: map ? 0.4 : 0,
-    }), { side });
+    return this._get(key, () => {
+      const m = new THREE.MeshStandardMaterial({
+        color, roughness: rough, metalness: 0,
+        side: THREE.DoubleSide, map, transparent: !!map, alphaTest: map ? 0.4 : 0,
+      });
+      m.userData.progTag = 'foliagewind';
+      m.onBeforeCompile = (shader) => {
+        Object.assign(shader.uniforms, WIND);
+        shader.vertexShader = shader.vertexShader
+          .replace('#include <common>', `#include <common>
+            uniform float uWindTime;
+            uniform vec2 uWindDir;
+            uniform float uWindAmt;`)
+          .replace('#include <begin_vertex>', `#include <begin_vertex>
+            {
+              // Sway grows with height above the pavement, so trunks stay put
+              // and canopies move; two frequencies keep it from pulsing.
+              vec3 tbW = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
+              float tbH = clamp( tbW.y * 0.15, 0.0, 1.5 );
+              float tbG = sin( uWindTime * 1.7 + tbW.x * 0.35 + tbW.z * 0.27 ) * 0.62
+                        + sin( uWindTime * 3.3 + tbW.x * 0.91 - tbW.z * 0.44 ) * 0.38;
+              transformed.xz += uWindDir * ( tbG * uWindAmt * tbH * tbH );
+            }`);
+      };
+      return m;
+    }, { side });
   }
 
   /** Cloth / skin for pedestrians (vertex-coloured, cheap). */
@@ -417,6 +486,34 @@ export class MatLib {
    * Basic + `toneMapped:false` also lets values above 1 reach the HDR buffer,
    * which is what makes these surfaces bloom.
    */
+  /**
+   * Vertex-coloured *and* softly self-lit.
+   *
+   * A shop interior is lit from inside. Rendered as plain matte geometry it
+   * falls into shadow the moment the sun swings past the facade, and a display
+   * window that goes black reads as a hole in the wall rather than as a shop.
+   * Standard shading still applies here — sun, ambient and the shop's own
+   * ceiling light all land on it — the vertex colour is simply *also* added as
+   * emission, at `fill` strength, so the room keeps a floor of visibility.
+   */
+  vcolLit({ side = undefined, fill = 0.4, rough = 0.78 } = {}) {
+    const key = `vcollit|${fill}|${rough}`;
+    return this._get(key, () => {
+      const m = new THREE.MeshStandardMaterial({
+        vertexColors: true, roughness: rough, metalness: 0.0, envMapIntensity: 0.5,
+      });
+      m.userData.progTag = `vcollit${fill}`;
+      m.onBeforeCompile = (shader) => {
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <emissivemap_fragment>',
+          `#include <emissivemap_fragment>
+           totalEmissiveRadiance += vColor.rgb * ${fill.toFixed(3)};`
+        );
+      };
+      return m;
+    }, { side, env: true });
+  }
+
   emitVcol({ side = undefined, strength = 2.2 } = {}) {
     return this._get(`emitv|${strength}`, () => new THREE.MeshBasicMaterial({
       vertexColors: true,
