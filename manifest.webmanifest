@@ -1,0 +1,20 @@
+{
+  "name": "THE BLOCK — Six Decades on One Corner",
+  "short_name": "The Block",
+  "description": "One city corner rendered six times over — 1945 to 2055 — entirely in code. Drag the timeline and watch it rebuild itself around you.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#05070a",
+  "theme_color": "#0a0c10",
+  "categories": ["games", "education", "entertainment"],
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='96' fill='%230d1117'/%3E%3Cpath d='M96 384V176l80-64 80 64v208z' fill='%23e8b46a'/%3E%3Cpath d='M288 384V224l64-48 64 48v160z' fill='%235bc8d6'/%3E%3Ccircle cx='256' cy='256' r='196' fill='none' stroke='%23e0668f' stroke-width='10' opacity='.55'/%3E%3C/svg%3E",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
