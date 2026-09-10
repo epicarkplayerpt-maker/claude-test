@@ -551,7 +551,7 @@ input[type=range]:focus-visible{ outline:2px solid var(--era-accent); outline-of
 .pb-group > label{ display:flex; justify-content:space-between; font-size:10px; letter-spacing:.16em;
   text-transform:uppercase; color:var(--ink-faint); margin-bottom:6px; }
 .pb-group > label i{ font-style:normal; font-family:var(--f-mono); color:var(--era-accent); letter-spacing:.02em; }
-.pb-toggles{ flex:0 0 auto; display:flex; gap:6px; align-items:center; }
+.pb-toggles{ flex:0 0 auto; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
 #pbFilm{ max-height:64px; overflow-y:auto; }
 
 /* ─────────────────────────── MISC ─────────────────────────── */
@@ -602,6 +602,8 @@ body.reduce * { animation-duration:.001s !important; transition-duration:.06s !i
     flex-direction:row; gap:8px;
   }
   body.touchui.lefty #topright{ right:auto; left:calc(var(--safe-l) + 10px); flex-direction:row-reverse; }
+  /* In a row the count badge would hang over its neighbour; tuck it inside. */
+  body.touchui #topright .ico .badge{ top:-3px; right:-2px; }
   /* The era card shares that band, so it yields the right-hand third. */
   body.touchui #eracard{ max-width:calc(100vw - 232px); }
   #navcluster{ display:none; }
@@ -616,6 +618,13 @@ body.reduce * { animation-duration:.001s !important; transition-duration:.06s !i
   .cx-grid{ grid-template-columns:1fr 1fr; }
   .pb-row{ gap:10px; }
   .pb-group{ flex:1 1 90px; min-width:90px; }
+  /* Four chips in a nowrap row are wider than a phone, which pushed Exit off
+     the side of the screen with no way back out of photo mode. Give the
+     toggles their own full-width row and let them share it. */
+  .pb-toggles{ flex:1 1 100%; min-width:0; justify-content:space-between; }
+  .pb-toggles .chip{ flex:1 1 auto; justify-content:center; text-align:center; padding-inline:8px; }
+  /* And cap the bar so a wrapped stack of controls can never run off the top. */
+  #photobar{ max-height:52vh; overflow-y:auto; overscroll-behavior:contain; }
 }
 @media (max-width:400px){ .cx-grid{ grid-template-columns:1fr; } }
 

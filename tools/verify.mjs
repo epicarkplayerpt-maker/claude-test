@@ -175,9 +175,22 @@ async function run(label, mobile) {
   return { checks, logs };
 }
 
-const desktop = await run('desktop', false);
+/**
+ * A failed click used to throw straight out of the process, which threw away
+ * every console log collected up to that point — the most useful part of the
+ * run. Capture the failure, keep the logs, and report both.
+ */
+async function safeRun(label, isMobile) {
+  try {
+    return await run(label, isMobile);
+  } catch (e) {
+    return { checks: { FAILED: String(e.message || e).split('\n')[0] }, logs: [`[${label}][HARNESS] ${e.message}`] };
+  }
+}
+
+const desktop = await safeRun('desktop', false);
 problems.push(...desktop.logs);
-const mobile = await run('mobile', true);
+const mobile = await safeRun('mobile', true);
 problems.push(...mobile.logs);
 
 await browser.close();
@@ -194,6 +207,7 @@ const report = {
 console.log(JSON.stringify(report, null, 2));
 await writeFile(join(OUT, 'report.json'), JSON.stringify({ report, problems }, null, 2));
 
+if (desktop.checks.FAILED || mobile.checks.FAILED) process.exitCode = 1;
 if (problems.length) {
   console.log(`\n════ ${problems.length} CONSOLE ISSUES ════`);
   console.log(problems.slice(0, 30).join('\n'));

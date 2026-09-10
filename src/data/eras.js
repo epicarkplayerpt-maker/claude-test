@@ -987,18 +987,21 @@ export const ERAS = [
   sky: {
     top: 0x123448, horizon: 0x3e6a72, ground: 0x1a2a2a,
     sunColor: 0xffc890, sunIntensity: 1.15, sunElev: 8, sunAzim: 296,
-    ambSky: 0x5a8496, ambGround: 0x46585e, ambIntensity: 1.45,
-    fog: 0x28454e, fogNear: 32, fogFar: 240, haze: 0.6,
-    clouds: 0.5, cloudColor: 0x3a5a64, cloudSpeed: 0.014, stars: 0.5,
+    // The last of the sun is still on the upper storeys at 8pm in June; only
+    // the street is in shadow. Warming the ground bounce and easing the cyan
+    // gives the frame something other than teal to hold on to.
+    ambSky: 0x5a8496, ambGround: 0x6a5a4a, ambIntensity: 1.85,
+    fog: 0x2c4650, fogNear: 36, fogFar: 260, haze: 0.52,
+    clouds: 0.5, cloudColor: 0x4a5f68, cloudSpeed: 0.014, stars: 0.5,
     holoGlow: 0.8, airTaxis: true,
   },
   grade: {
-    exposure: 1.16, lift: [0.014, 0.03, 0.036], gamma: [1.02, 1.0, 0.99],
-    gain: [0.98, 1.03, 1.06], tint: [0.97, 1.02, 1.06],
-    sat: 1.16, contrast: 1.12, temp: -0.12,
-    vignette: 0.40, grain: 0.022, chroma: 0.30, halation: 0.16,
-    sepia: 0, vhs: 0, bleach: 0, holo: 0.32, dust: 0.11,
-    bloomStrength: 1.25, bloomThreshold: 0.88,
+    exposure: 1.24, lift: [0.026, 0.034, 0.038], gamma: [1.02, 1.0, 0.99],
+    gain: [1.0, 1.02, 1.035], tint: [1.0, 1.01, 1.03],
+    sat: 1.12, contrast: 1.1, temp: -0.05,
+    vignette: 0.36, grain: 0.022, chroma: 0.26, halation: 0.16,
+    sepia: 0, vhs: 0, bleach: 0, holo: 0.22, dust: 0.11,
+    bloomStrength: 1.25, bloomThreshold: 0.90,
   },
   timeOfDay: 20 * 60 + 15,
   weather: 'haze',
