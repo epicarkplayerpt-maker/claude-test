@@ -66,17 +66,77 @@ async function run(label, mobile) {
   const hudVisible = await page.isVisible('#hud');
   const touchVisible = await page.isVisible('#stickL').catch(() => false);
 
-  /* Walk a little so the player controller, collision and footsteps run. */
+  /* Walk a little so the player controller, collision and footsteps run —
+     and, on touch, PROVE the player actually moves.
+
+     The old mobile check tapped the stick's centre. A tap at the centre is
+     zero deflection, so it asserted nothing, and it kept passing for weeks
+     while the stick was completely dead: the listener was bound to the canvas,
+     and the stick is a sibling element stacked on top of it, so no thumb that
+     landed on the stick ever reached the handler. A control test has to move
+     the control and check the world responded. */
+  const posBefore = await page.evaluate(() => window.__diag().pos);
+
+  /* Hold the control until the player has actually moved, or we run out of
+     patience. Wall-clock waits are useless here: this harness runs on
+     SwiftShader, which renders this scene at roughly half a frame per second
+     at desktop resolution, so 900 ms of held key can span *no frames at all*.
+     Poll the world instead of the clock. */
+  const movedBy = async () => {
+    const p = await page.evaluate(() => window.__diag().pos);
+    return Math.hypot(p[0] - posBefore[0], p[2] - posBefore[2]);
+  };
+  const HOLD_MS = 24000;
+  let walked = 0;
   if (!mobile) {
     await page.keyboard.down('KeyW');
-    await page.waitForTimeout(900);
+    for (let t = 0; t < HOLD_MS && walked < 0.5; t += 500) {
+      await page.waitForTimeout(500);
+      walked = await movedBy();
+    }
     await page.keyboard.up('KeyW');
   } else {
-    const stick = await page.$('#stickL');
-    const box = await stick.boundingBox();
-    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-    await page.waitForTimeout(400);
+    // Drag a thumb up from the lower-left quadrant and hold, as a player does.
+    const cdp = await ctx.newCDPSession(page);
+    const sx = 110, sy = 640;
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: sx, y: sy, id: 1 }] });
+    for (let i = 1; i <= 8; i++) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: sx, y: sy - i * 7, id: 1 }] });
+      await page.waitForTimeout(40);
+    }
+    for (let t = 0; t < HOLD_MS && walked < 0.5; t += 500) {
+      await page.waitForTimeout(500);
+      walked = await movedBy();
+    }
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await page.waitForTimeout(200);
   }
+  if (walked < 0.5) logs.push(`[${label}][MOVEMENT] stick/keys moved the player only ${walked.toFixed(2)} m`);
+
+  /* Look: drag across the middle of the screen and check the camera turned. */
+  const yawBefore = await page.evaluate(() => window.__diag().yaw);
+  if (mobile) {
+    const cdp2 = await ctx.newCDPSession(page);
+    await cdp2.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 300, y: 300, id: 2 }] });
+    for (let i = 1; i <= 6; i++) {
+      await cdp2.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 300 - i * 14, y: 300, id: 2 }] });
+      await page.waitForTimeout(30);
+    }
+    await cdp2.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  } else {
+    await page.mouse.move(600, 350);
+    await page.mouse.down();
+    for (let i = 1; i <= 6; i++) { await page.mouse.move(600 - i * 20, 350); await page.waitForTimeout(25); }
+    await page.mouse.up();
+  }
+  // Look accumulates into the player on the next frame, which at half a frame
+  // per second may be a while away.
+  let turned = 0;
+  for (let t = 0; t < 12000 && turned <= 0.05; t += 500) {
+    await page.waitForTimeout(500);
+    turned = Math.abs(await page.evaluate(() => window.__diag().yaw) - yawBefore);
+  }
+  if (!(turned > 0.05)) logs.push(`[${label}][LOOK] drag turned the camera only ${turned.toFixed(3)} rad`);
 
   /* Timeline: click each stop, wait for the warp, screenshot. */
   for (let i = 0; i < 6; i++) {

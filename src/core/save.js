@@ -15,6 +15,7 @@ const DEFAULTS = {
   erasVisited: {},        // year → seconds spent
   secrets: {},            // id → { at, era }
   places: {},             // placeId → true once inspected
+  seen: {},               // interactable id → true once read (drives markers)
   lastEra: 1945,
   lastPos: null,
   settings: {
@@ -117,6 +118,16 @@ export class Save {
     return true;
   }
   hasSecret(id) { return !!this.data.secrets[id]; }
+
+  /** Everything you have actually walked up to and read. */
+  markSeen(id) {
+    if (!id || this.data.seen[id]) return false;
+    this.data.seen[id] = true;
+    this.touch();
+    return true;
+  }
+  hasSeen(id) { return !!this.data.seen[id]; }
+
   secretCount() { return Object.keys(this.data.secrets).length; }
 
   markPlace(id) {

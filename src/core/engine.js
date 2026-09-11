@@ -107,6 +107,10 @@ export class Engine {
     this._ftIdx = 0;
     this._govCooldown = 0;
     this.governorEnabled = true;
+    // The governor may climb back to where the device probe started it, never
+    // past — a phone that manages a few smooth seconds is not an ultra machine.
+    this._tierCeiling = this.tier;
+    this._tierFloor = 'low';
 
     this.resize();
   }
@@ -189,16 +193,44 @@ export class Engine {
     // Targets: 60fps desktop, 45fps mobile (phones throttle hard under load and
     // a stable 45 reads better than an oscillating 60/30).
     const budget = this.device.mobile ? 22.5 : 17.5;
-    if (avg > budget * 1.35 && this._adaptive > 0.62) {
-      this._adaptive = Math.max(0.62, this._adaptive - 0.09);
-      this._sizeDirty = true;
-      this._govCooldown = 1.6;
-      this.onGovernor?.('down', this._adaptive);
+    const ORDER = ['low', 'medium', 'high', 'ultra'];
+    const FLOOR = 0.5;
+
+    if (avg > budget * 1.35) {
+      if (this._adaptive > FLOOR) {
+        this._adaptive = Math.max(FLOOR, this._adaptive - 0.09);
+        this._sizeDirty = true;
+        this._govCooldown = 1.6;
+        this.onGovernor?.('down', this._adaptive);
+        return;
+      }
+      /* Out of resolution to give. Resolution is only ever half the bill — the
+         rest is MSAA samples, the AO pass, shadow map size and how many people
+         and cars are being animated. Step the whole tier down and get all of
+         it at once, rather than sitting at half resolution and still dropping
+         frames, which is what a struggling phone used to do for ever. */
+      const i = ORDER.indexOf(this.tier);
+      if (i > ORDER.indexOf(this._tierFloor)) {
+        this.setTier(ORDER[i - 1]);
+        this._adaptive = 0.82;
+        this._sizeDirty = true;
+        this._govCooldown = 4.0;
+        this.onGovernor?.('tier-down', this.tier);
+      }
     } else if (avg < budget * 0.74 && this._adaptive < 1.0) {
       this._adaptive = Math.min(1.0, this._adaptive + 0.05);
       this._sizeDirty = true;
       this._govCooldown = 2.4;
       this.onGovernor?.('up', this._adaptive);
+    } else if (avg < budget * 0.62 && this._adaptive >= 1.0) {
+      // Comfortable at full resolution — take the tier back, at most to where
+      // the device probe put us, and slowly.
+      const i = ORDER.indexOf(this.tier);
+      if (i < ORDER.indexOf(this._tierCeiling)) {
+        this.setTier(ORDER[i + 1]);
+        this._govCooldown = 8.0;
+        this.onGovernor?.('tier-up', this.tier);
+      }
     }
   }
 

@@ -72,9 +72,9 @@
       <button id="btnSettingsTitle" class="btn btn-ghost">Settings</button>
     </div>
     <div class="title-hints">
-      <div class="hint-col"><b>Desktop</b><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · drag to look · click to inspect · <kbd>Shift</kbd> sprint · <kbd>E</kbd> interact · <kbd>1</kbd>–<kbd>6</kbd> jump eras · <kbd>Q</kbd>/<kbd>R</kbd> nudge time</span></div>
-      <div class="hint-col"><b>Touch</b><span>Left stick to walk · drag anywhere on the right to look · tap the <b>◎</b> prompt to interact · pinch to zoom</span></div>
-      <div class="hint-col"><b>Gamepad</b><span>Left stick move · right stick look · <b>A</b> interact · <b>LB</b>/<b>RB</b> change era</span></div>
+      <div class="hint-col"><b>Desktop</b><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · drag to look · <kbd>V</kbd> look around · <kbd>E</kbd> inspect · <kbd>Shift</kbd> sprint · <kbd>1</kbd>–<kbd>6</kbd> jump eras · <kbd>Q</kbd>/<kbd>R</kbd> nudge time</span></div>
+      <div class="hint-col"><b>Touch</b><span>Touch anywhere in the lower left and drag to walk — the stick appears under your thumb · drag on the right to look · <b>◉</b> looks around · <b>◎</b> inspects · pinch to zoom</span></div>
+      <div class="hint-col"><b>What to do</b><span>Seven things on this block are followed across all six decades. Find one, then drag the timeline and find out what happened to it. <b>◉</b> rings anything nearby you haven't read.</span></div>
     </div>
     <div class="title-foot"><span id="titleSaveLine"></span></div>
   </div>
@@ -119,6 +119,9 @@
     </button>
   </div>
 
+  <!-- World markers: rings on findable things, chevrons to leads off-screen -->
+  <canvas id="markers" aria-hidden="true"></canvas>
+
   <!-- Compass + minimap -->
   <div id="navcluster">
     <div id="minimap"><canvas id="minimapCanvas" width="188" height="188"></canvas>
@@ -156,6 +159,7 @@
     <div id="touchBtns">
       <button class="tbtn tbtn-run" id="tbtnRun" aria-label="Sprint">RUN</button>
       <button class="tbtn tbtn-act" id="tbtnAct" aria-label="Interact">◎</button>
+      <button class="tbtn tbtn-sense" id="tbtnSense" aria-label="Look around">◉</button>
       <button class="tbtn tbtn-jump" id="tbtnJump" aria-label="Jump">⤒</button>
     </div>
   </div>

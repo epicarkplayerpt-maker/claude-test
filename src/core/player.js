@@ -27,9 +27,12 @@ export class Player {
 
     this.grounded = true;
     this.flying = false;
-    this.speedWalk = 2.5;
-    this.speedRun = 5.4;
-    this.speedFly = 9;
+    // A real person walks at 1.4 m/s. A person in a game who walks at 1.4 m/s
+    // feels like they are wading. These are tuned for how far apart the things
+    // worth looking at are on this block, not for realism.
+    this.speedWalk = 3.3;
+    this.speedRun = 7.0;
+    this.speedFly = 11;
     this.bobEnabled = true;
     this.bobPhase = 0;
     this.bobAmount = 0;
@@ -101,7 +104,9 @@ export class Player {
     } else {
       const base = wantCrouch ? this.speedWalk * 0.46 : wantRun ? this.speedRun : this.speedWalk;
       const target = base * clamp01(mag);
-      const accel = this.grounded ? 26 : 6;
+      // Reaching full speed in about a sixth of a second reads as responsive
+      // without losing the weight entirely.
+      const accel = this.grounded ? 38 : 7;
       this.vel.x = damp(this.vel.x, wishX * target, accel * 0.5, dt);
       this.vel.z = damp(this.vel.z, wishZ * target, accel * 0.5, dt);
 

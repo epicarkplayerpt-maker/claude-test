@@ -267,6 +267,12 @@ export class Audio {
       this._noise(t + 0.07, 0.05, 0.16, 'bandpass', 1800, 1.2, this.sfxBus);
     } else if (kind === 'deny') {
       this._osc('square', 180, t, 0.13, 0.05, this.sfxBus);
+    } else if (kind === 'sense') {
+      // A sonar ping: a soft strike with a long tail, so the pulse is heard
+      // going out rather than just seen.
+      this._osc('sine', 880, t, 0.55, 0.07, this.verb);
+      this._osc('sine', 1320, t + 0.02, 0.42, 0.035, this.verb);
+      this._osc('sine', 440, t + 0.06, 0.75, 0.045, this.verb);
     }
   }
 

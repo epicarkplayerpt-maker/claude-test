@@ -351,8 +351,16 @@ kbd{ display:inline-block; padding:1px 5px; margin:0 1px; border-radius:4px; fon
 .stick{
   position:absolute; bottom:calc(var(--safe-b) + 26px); left:calc(var(--safe-l) + 26px);
   width:calc(128px * var(--stick,1)); height:calc(128px * var(--stick,1));
-  pointer-events:auto; touch-action:none;
+  /* The stick is a graphic, not a control: the window-level pointer handler
+     owns the touch and repositions this under the thumb. Letting the element
+     take pointer events is what made it swallow every press and go dead. */
+  pointer-events:none; touch-action:none;
+  transition:opacity .2s;
 }
+/* Floating: JS has pinned it to the thumb, so the resting offsets must not
+   fight the inline left/top it sets. */
+.stick.floating{ bottom:auto; left:auto; transition:none; }
+.stick:not(.act){ opacity:.5; }
 body.lefty .stick{ left:auto; right:calc(var(--safe-r) + 26px); }
 body.lefty #touchBtns{ right:auto; left:calc(var(--safe-l) + 22px); align-items:flex-start; }
 .stick-base{
@@ -389,6 +397,18 @@ body.lefty #touchBtns{ right:auto; left:calc(var(--safe-l) + 22px); align-items:
 @keyframes actPulse{ 50%{ box-shadow:0 0 0 10px rgba(255,255,255,0), var(--era-glow); } }
 .tbtn-run{ width:calc(54px*var(--stick,1)); height:calc(54px*var(--stick,1)); font-size:calc(11px*var(--stick,1)); letter-spacing:.06em; }
 .tbtn-jump{ width:calc(54px*var(--stick,1)); height:calc(54px*var(--stick,1)); font-size:calc(21px*var(--stick,1)); }
+.tbtn-sense{ width:calc(54px*var(--stick,1)); height:calc(54px*var(--stick,1)); font-size:calc(20px*var(--stick,1)); }
+.tbtn-sense.cooling{ opacity:.4; }
+
+/* ── World markers ────────────────────────────────────────────────
+   A full-screen canvas the frame loop draws rings and chevrons into. It sits
+   under the HUD chrome and takes no pointer events — it is pure readout. */
+#markers{
+  position:fixed; inset:0; z-index:39;
+  width:100%; height:100%;
+  pointer-events:none;
+}
+body.uihidden #markers{ opacity:0; }
 
 /* ─────────────────────────── PANELS ─────────────────────────── */
 .panel{

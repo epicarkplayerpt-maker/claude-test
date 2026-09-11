@@ -21,9 +21,10 @@ import { setWind } from './world/materials.js';
 import { Weather, WarpRing } from './fx/weather.js';
 import { TimeWarp } from './fx/timewarp.js';
 import { HUD } from './ui/hud.js';
+import { Markers } from './ui/markers.js';
 import { Tour } from './ui/tour.js';
 import { ERAS, YEARS } from './data/eras.js';
-import { secretById } from './data/secrets.js';
+import { secretById, THREADS } from './data/secrets.js';
 import { clamp, clamp01, damp, lerp, clockString } from './core/mathx.js';
 
 /* ══════════════════════════ boot ══════════════════════════ */
@@ -57,6 +58,7 @@ const audio = new Audio();
 const weather = new Weather(engine.scene, engine.q);
 const warpRing = new WarpRing(engine.scene, tier === 'low' ? 320 : 900);
 const hud = new HUD(save, { touch: device.touch });
+const markers = new Markers(document.getElementById('markers'));
 hud.initMinimap();
 hud.setQualityChip(tier);
 
@@ -88,6 +90,8 @@ const state = {
   appliedEra: -1,
   ghostFrame: 0,
   photoExp: 0, photoDof: 0, grid: false,
+  // Cached so the marker overlay doesn't force a style recalc every frame.
+  eraAccent: '#e8b46a',
 };
 
 player.reset(16, -46, 0);
@@ -132,6 +136,8 @@ function applyEraSettled(idx) {
     city.sharedMats.setEnvironment(env);
   }
   applyFilm();
+
+  state.eraAccent = '#' + new THREE.Color(ERAS[idx].accent).getHexString();
 
   if (state.appliedEra !== idx) {
     state.appliedEra = idx;
@@ -223,8 +229,33 @@ function grantSecret(id) {
   if (isNew) {
     hud.celebrateSecret(base);
     audio.ui('secret');
+    reportThread(base);
   }
   return isNew;
+}
+
+/**
+ * Say where a discovery sits in its thread.
+ *
+ * Seven objects on this block are followed across all six decades, and that is
+ * the actual game: find the tree in 1945, then go and find what happened to it.
+ * A discovery toast that only says "added to the codex" hides that entirely.
+ * Saying "The tree on the corner — 2 of 6 decades" turns one find into a
+ * reason to move the timeline.
+ */
+function reportThread(secretId) {
+  const meta = secretById[secretId];
+  const thread = THREADS.find((t) => t.id === meta?.thread);
+  if (!thread) return;
+  const total = thread.beads.length;
+  const found = thread.perEra
+    ? YEARS.filter((y) => save.hasSecret(`${thread.perEra}@${y}`)).length
+    : thread.beads.filter((b) => b.secret && save.hasSecret(b.secret)).length;
+  if (found <= 0) return;
+  setTimeout(() => {
+    hud.toast(`${thread.icon}  ${thread.title}`,
+      found >= total ? `Complete — all ${total} decades` : `${found} of ${total} decades`);
+  }, 1400);
 }
 
 /* ══════════════════════════ interaction ══════════════════════════ */
@@ -236,10 +267,48 @@ function tryInteract(silentMiss = false) {
   if (!it) { if (!silentMiss) audio.ui('deny'); return; }
   audio.ui('confirm');
   if (it.place) save.markPlace(`${it.place}@${ERAS[state.era].year}`);
+  save.markSeen(it.id);
   const secretId = it.secret ? it.id : SECRET_FOR[it.id];
   if (secretId) grantSecret(secretId);
   hud.openReader({ title: it.title, body: it.body, foot: it.foot });
 }
+
+/**
+ * Look around.
+ *
+ * Rings everything unread within a couple of dozen metres for a few seconds.
+ * This is the answer to "how would anyone know that shop window is readable" —
+ * on a phone especially, where there is no hover and the reticle only speaks
+ * when you are already pointing at something.
+ */
+function sense() {
+  if (!state.playing || hud.locked) return;
+  if (markers.sense()) {
+    audio.ui('sense');
+    const n = city.interactables.filter((it) => !save.hasSeen(it.id)).length;
+    if (n === 0) hud.toast('Nothing left here', `You have read everything in ${ERAS[state.era].year}`);
+  } else {
+    audio.ui('deny');
+  }
+}
+
+/**
+ * When the governor changes tier, the scene has to act on it.
+ *
+ * `setTier` re-points the renderer at the new MSAA, AO and shadow settings,
+ * but the crowd and the traffic were already populated at the old densities
+ * and would carry that cost until the next era change. Re-populating is cheap
+ * — they are instanced — and it is most of the CPU the tier drop was after.
+ */
+engine.onTierChange = (t) => {
+  city.quality = engine.q;
+  if (city.currentIdx >= 0) {
+    city.traffic.populate(ERAS[state.era], state.era, engine.q.traffic);
+    city.crowd?.populate(ERAS[state.era], state.era, engine.q.crowd);
+    city.flock?.populate(ERAS[state.era], state.era, engine.q.crowd);
+  }
+  hud.setStatsTier?.(t);
+};
 
 /* ══════════════════════════ HUD wiring ══════════════════════════ */
 
@@ -433,6 +502,7 @@ input.on('key', (code) => {
   else if (code === 'KeyF') hud.on.fly();
   else if (code === 'KeyT') tour.start();
   else if (code === 'Enter' && state.photo) shoot();
+  else if (code === 'KeyV') sense();
   else if (code === 'KeyQ') requestEra(state.era - 1);
   else if (code === 'KeyR') requestEra(state.era + 1);
   else if (/^Digit[1-6]$/.test(code)) requestEra(Number(code.slice(5)) - 1);
@@ -449,6 +519,10 @@ input.on('canvasdown', () => {
 document.getElementById('tbtnAct')?.addEventListener('pointerdown', (e) => {
   e.preventDefault(); e.stopPropagation();
   if (!hud.locked) tryInteract();
+});
+document.getElementById('tbtnSense')?.addEventListener('pointerdown', (e) => {
+  e.preventDefault(); e.stopPropagation();
+  sense();
 });
 document.getElementById('tbtnJump')?.addEventListener('pointerdown', (e) => {
   e.preventDefault(); e.stopPropagation();
@@ -503,6 +577,8 @@ function frame(now) {
   state.time += dt;
 
   input.sample();
+  window.__frames = (window.__frames || 0) + 1;
+  window.__inputEnabled = input.enabled;
 
   if (state.playing && !state.paused) {
     if (tour.active) tour.update(dt, input);
@@ -535,6 +611,12 @@ function frame(now) {
   setWind({ time: state.time, dir: 0.6 + Math.sin(state.time * 0.037) * 0.9, amount: gust });
 
   city.update(dt, state.time, player.pos, sky.daylight, audio);
+
+  markers.enabled = save.get('settings.waypoints', true);
+  markers.update(dt, engine.camera, city.interactables, (id) => save.hasSeen(id),
+    state.eraAccent,
+    state.playing && !state.paused && !hud.locked && !state.photo);
+  document.getElementById('tbtnSense')?.classList.toggle('cooling', markers.cooldown > 0);
   // Pixels per metre at one metre — keeps every sprite physically sized.
   const pixelScale = engine._h / (2 * Math.tan(engine.camera.fov * Math.PI / 360));
   weather.update(dt, state.time, engine.camera.position, pixelScale);
@@ -625,7 +707,13 @@ window.__diag = () => ({
   birds: city.flock?.birds.length ?? 0,
   vehicles: city.traffic.vehicles.length,
   secrets: save.secretCount(),
-  pos: [+player.pos.x.toFixed(1), +player.pos.y.toFixed(1), +player.pos.z.toFixed(1)],
+  pos: [+player.pos.x.toFixed(2), +player.pos.y.toFixed(2), +player.pos.z.toFixed(2)],
+  yaw: +player.yaw.toFixed(4),
+  keys: [...input.keys],
+  move: [+input.move.x.toFixed(2), +input.move.y.toFixed(2)],
+  moveMag: +input.moveMag.toFixed(2),
+  tour: tour.active,
+  pitch: +player.pitch.toFixed(4),
 });
 window.__setEra = async (i) => {
   state.era = i;

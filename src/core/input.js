@@ -13,6 +13,12 @@
  *  - Pointer lock does not exist on iOS. Touch look is therefore drag-relative,
  *    not lock-relative, and must survive a finger leaving the screen mid-drag
  *    (pointercancel), which iOS does aggressively on incoming calls/notifications.
+ *  - Pointer listeners are bound to the WINDOW, not the canvas. The touch stick
+ *    and the action buttons are DOM siblings stacked on top of the canvas, so a
+ *    canvas-bound `pointerdown` never sees a thumb that lands on the stick —
+ *    which made the stick completely dead on every phone while look-drag,
+ *    landing on bare canvas, kept working. Chrome with its own handlers is
+ *    filtered out by target instead (see `_ownsPointer`).
  */
 
 import { clamp, deadzone2 } from './mathx.js';
@@ -20,7 +26,7 @@ import { clamp, deadzone2 } from './mathx.js';
 const LOOK_KEYS = new Set([
   'KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight',
   'Space','ShiftLeft','ShiftRight','KeyE','KeyQ','KeyR','KeyF','KeyC','KeyG',
-  'KeyP','KeyM','KeyH','KeyT','Escape','Tab','Digit1','Digit2','Digit3',
+  'KeyP','KeyM','KeyH','KeyT','KeyV','Escape','Tab','Digit1','Digit2','Digit3',
   'Digit4','Digit5','Digit6','KeyZ','Enter','Backquote',
 ]);
 
@@ -116,7 +122,9 @@ export class Input {
 
     /* Pointer / touch --------------------------------------------- */
     if (window.PointerEvent) {
-      c.addEventListener('pointerdown', (e) => this._pDown(e), { passive: false });
+      window.addEventListener('pointerdown', (e) => {
+        if (this._ownsPointer(e)) this._pDown(e);
+      }, { passive: false, capture: true });
       window.addEventListener('pointermove', (e) => this._pMove(e), { passive: false });
       window.addEventListener('pointerup', (e) => this._pUp(e));
       window.addEventListener('pointercancel', (e) => this._pUp(e));
@@ -126,10 +134,11 @@ export class Input {
         pointerId: t.identifier, clientX: t.clientX, clientY: t.clientY,
         pointerType: 'touch', preventDefault() {}, button: 0,
       });
-      c.addEventListener('touchstart', (e) => {
+      window.addEventListener('touchstart', (e) => {
+        if (!this._ownsPointer(e)) return;
         e.preventDefault();
         for (const t of e.changedTouches) this._pDown(conv(t));
-      }, { passive: false });
+      }, { passive: false, capture: true });
       window.addEventListener('touchmove', (e) => {
         e.preventDefault();
         for (const t of e.changedTouches) this._pMove(conv(t));
@@ -156,27 +165,65 @@ export class Input {
 
   /* ═══════════════════════════ POINTERS ═══════════════════════════ */
 
-  /** Which half of the screen a touch started in decides its job. */
+  /**
+   * Does this pointer belong to the world, or to a control that handles itself?
+   *
+   * Everything the player touches sits in one stack: the canvas at the bottom,
+   * the touch overlay above it, the HUD above that. Buttons, sliders and panels
+   * carry their own listeners, so the world takes everything except those.
+   */
+  _ownsPointer(e) {
+    const t = e.target;
+    if (!t || !t.closest) return true;
+    return !t.closest(
+      'button, input, select, textarea, a, label, ' +
+      '.tl, #topright, #eracard, #minimap, #photobar, #toasts, #prompt, #subtitle, ' +
+      '.panel, .screen, #rotatehint'
+    );
+  }
+
+  /**
+   * What a touch is for, decided by where it lands.
+   *
+   * The stick is *floating*: anywhere in the lower half of the movement side
+   * starts one, centred on the thumb, rather than making the player find a
+   * fixed circle they cannot see under their own hand. This is how every
+   * competent mobile shooter does it, and it is the single biggest difference
+   * between touch controls that feel broken and touch controls that feel fine.
+   */
   _roleFor(e) {
     const lefty = document.body.classList.contains('lefty');
-    const w = window.innerWidth;
-    const onStickSide = lefty ? e.clientX > w * 0.5 : e.clientX < w * 0.5;
-    // The stick only claims a touch that starts inside its footprint; a touch
-    // anywhere else — including the "stick side" — is a look drag, so players
-    // can turn with either thumb.
-    const zone = this._stickZone();
-    if (zone && e.clientX >= zone.x0 && e.clientX <= zone.x1 &&
-        e.clientY >= zone.y0 && e.clientY <= zone.y1 && onStickSide) return 'stick';
+    const w = window.innerWidth, h = window.innerHeight;
+    const onStickSide = lefty ? e.clientX > w * 0.52 : e.clientX < w * 0.48;
+    if (onStickSide && e.clientY > h * 0.42) return 'stick';
+    // A touch anywhere else — including high on the stick side — is a look
+    // drag, so players can turn with either thumb.
     return 'look';
   }
 
+  /** The stick's resting footprint, used for the ring radius. */
   _stickZone() {
     const el = document.getElementById('stickL');
     if (!el || el.offsetParent === null) return null;
     const r = el.getBoundingClientRect();
-    const pad = Math.max(30, r.width * 0.42); // generous grab radius for thumbs
-    return { x0: r.left - pad, x1: r.right + pad, y0: r.top - pad, y1: r.bottom + pad,
-             cx: r.left + r.width / 2, cy: r.top + r.height / 2, rad: r.width / 2 };
+    return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, rad: r.width / 2 };
+  }
+
+  /** Move the stick graphic under the thumb, or send it home. */
+  _placeStick(x, y) {
+    const el = document.getElementById('stickL');
+    if (!el) return;
+    if (x === null) {
+      el.style.left = ''; el.style.top = ''; el.style.right = ''; el.style.bottom = '';
+      el.classList.remove('act', 'floating');
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    el.classList.add('act', 'floating');
+    el.style.left = `${x - r.width / 2}px`;
+    el.style.top = `${y - r.height / 2}px`;
+    el.style.right = 'auto';
+    el.style.bottom = 'auto';
   }
 
   _pDown(e) {
@@ -198,7 +245,10 @@ export class Input {
         role: 'look', t: performance.now(), moved: 0, mouse: true,
       });
       this._lookId = e.pointerId;
-      this.canvas.setPointerCapture?.(e.pointerId);
+      // The pointer may have gone down on the overlay rather than the canvas,
+      // in which case the canvas cannot capture it. Not being able to capture
+      // is fine — the move/up listeners are on the window either way.
+      try { this.canvas.setPointerCapture?.(e.pointerId); } catch { /* not ours */ }
       this.canvas.classList.add('dragging');
       return;
     }
@@ -213,10 +263,8 @@ export class Input {
     if (role === 'stick' && this._stickId === null) {
       this._stickId = e.pointerId;
       const z = this._stickZone();
-      // Re-centre the stick origin on the touch point so the thumb never has to
-      // hunt for the exact centre — feels dramatically better on a phone.
       this._stickOrigin = { x: e.clientX, y: e.clientY, r: z ? z.rad : 56 };
-      document.getElementById('stickL')?.classList.add('act');
+      this._placeStick(e.clientX, e.clientY);
     } else if (role === 'look' && this._lookId === null) {
       this._lookId = e.pointerId;
     }
@@ -278,6 +326,7 @@ export class Input {
     if (e.pointerId === this._stickId) {
       this._stickId = null;
       this._stickVec.x = 0; this._stickVec.y = 0;
+      this._placeStick(null);
       this._paintStick(0, 0);
       document.getElementById('stickL')?.classList.remove('act');
       if (!this._touchSprintSticky) this._touchSprintOn = false;
@@ -313,7 +362,7 @@ export class Input {
     this._pinchIds = [];
     this._stickVec.x = this._stickVec.y = 0;
     this._paintStick(0, 0);
-    document.getElementById('stickL')?.classList.remove('act');
+    this._placeStick(null);
   }
 
   /* ═══════════════════════════ PER-FRAME ═══════════════════════════ */
@@ -334,7 +383,9 @@ export class Input {
 
     // Touch stick overrides when active
     if (this._stickId !== null) {
-      const [sx, sy, m] = deadzone2(this._stickVec.x, this._stickVec.y, 0.12);
+      // A floating stick is centred exactly where the thumb landed, so the
+      // deadzone only has to swallow jitter, not hunting.
+      const [sx, sy, m] = deadzone2(this._stickVec.x, this._stickVec.y, 0.07);
       mx = sx; my = -sy; mag = m;
       if (this._touchSprintOn) sprint = true;
     } else if (this._touchSprintOn && this._touchSprintSticky && mag > 0) {
@@ -443,8 +494,12 @@ export function probeDevice() {
   const dpr = window.devicePixelRatio || 1;
   // Heuristic tier: mobiles and low-core machines start conservative and the
   // adaptive governor raises quality if frame times allow.
+  // Start a phone low and let the governor climb if there is headroom. Guessing
+  // high from a core count and being wrong costs a bad first thirty seconds,
+  // which is the whole first impression; guessing low and climbing costs one
+  // barely visible resolution step.
   let tier = 'high';
-  if (mobile) tier = (cores >= 6 && mem >= 4) ? 'medium' : 'low';
+  if (mobile) tier = 'low';
   else if (cores <= 4 || mem <= 4) tier = 'medium';
   return { touch, iOS, android, mobile, cores, mem, dpr, tier };
 }
