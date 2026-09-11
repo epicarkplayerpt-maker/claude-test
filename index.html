@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover,user-scalable=no" />
+<meta name="theme-color" content="#0a0c10" />
+<meta name="description" content="THE BLOCK — one city corner, six decades. A real-time 3D time machine you can walk through." />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="The Block" />
+<title>THE BLOCK — Six Decades on One Corner</title>
+<link rel="manifest" href="./manifest.webmanifest" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%230d1117'/%3E%3Cpath d='M12 48V22l10-8 10 8v26z' fill='%23e8b46a'/%3E%3Cpath d='M36 48V28l8-6 8 6v20z' fill='%235bc8d6'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="./styles/main.css" />
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+</head>
+<body>
+
+<canvas id="viewport" aria-label="3D city block viewport"></canvas>
+
+<!-- ══════════════════════════ BOOT / LOADING ══════════════════════════ -->
+<div id="boot" class="screen" role="status" aria-live="polite">
+  <div class="boot-inner">
+    <div class="boot-mark">
+      <svg viewBox="0 0 120 120" width="88" height="88" aria-hidden="true">
+        <defs>
+          <linearGradient id="bm" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#f0c07a"/><stop offset=".5" stop-color="#e0668f"/><stop offset="1" stop-color="#56d0e0"/>
+          </linearGradient>
+        </defs>
+        <circle cx="60" cy="60" r="52" fill="none" stroke="url(#bm)" stroke-width="2" opacity=".5"/>
+        <circle id="bootRing" cx="60" cy="60" r="44" fill="none" stroke="url(#bm)" stroke-width="4"
+                stroke-linecap="round" stroke-dasharray="276.5" stroke-dashoffset="276.5"
+                transform="rotate(-90 60 60)"/>
+        <path d="M60 34v27l18 11" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <h1 class="boot-title">THE&nbsp;BLOCK</h1>
+    <p class="boot-sub">One corner. Six decades. Walk through time.</p>
+    <div class="boot-bar"><i id="bootFill"></i></div>
+    <p class="boot-step" id="bootStep">warming up the projector…</p>
+  </div>
+</div>
+
+<!-- ══════════════════════════ TITLE / START ══════════════════════════ -->
+<div id="title" class="screen hidden">
+  <div class="title-vignette"></div>
+  <div class="title-inner">
+    <div class="title-kicker">A REAL-TIME TIME MACHINE</div>
+    <h1 class="title-main">THE&nbsp;BLOCK</h1>
+    <div class="title-years" aria-hidden="true">
+      <span>1945</span><i></i><span>1965</span><i></i><span>1985</span><i></i><span>2005</span><i></i><span>2025</span><i></i><span>2055</span>
+    </div>
+    <p class="title-blurb">
+      Corner of <b>5th &amp; Vine</b>. The same bricks, the same sky, the same stubborn cat —
+      dragged through <b>110 years</b> of paint, neon, asphalt and ambition.
+      Slide the timeline and watch it rebuild itself around you.
+    </p>
+    <div class="title-actions">
+      <button id="btnStart" class="btn btn-primary">
+        <span class="btn-glyph">▶</span> <span>Enter the Block</span>
+      </button>
+      <button id="btnTour" class="btn">Guided Tour</button>
+      <button id="btnSettingsTitle" class="btn btn-ghost">Settings</button>
+    </div>
+    <div class="title-hints">
+      <div class="hint-col"><b>Desktop</b><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move · drag to look · <kbd>V</kbd> look around · <kbd>E</kbd> inspect · <kbd>Shift</kbd> sprint · <kbd>1</kbd>–<kbd>6</kbd> jump eras · <kbd>Q</kbd>/<kbd>R</kbd> nudge time</span></div>
+      <div class="hint-col"><b>Touch</b><span>Touch anywhere in the lower left and drag to walk — the stick appears under your thumb · drag on the right to look · <b>◉</b> looks around · <b>◎</b> inspects · pinch to zoom</span></div>
+      <div class="hint-col"><b>What to do</b><span>Seven things on this block are followed across all six decades. Find one, then drag the timeline and find out what happened to it. <b>◉</b> rings anything nearby you haven't read.</span></div>
+    </div>
+    <div class="title-foot"><span id="titleSaveLine"></span></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════ IN-GAME HUD ══════════════════════════ -->
+<div id="hud" class="hidden">
+
+  <!-- Timeline -->
+  <div id="timeline" class="tl">
+    <div class="tl-shell">
+      <button class="tl-arrow" id="tlPrev" aria-label="Previous era">‹</button>
+      <div class="tl-track" id="tlTrack" role="slider" tabindex="0"
+           aria-label="Timeline" aria-valuemin="0" aria-valuemax="5" aria-valuenow="0" aria-valuetext="1945">
+        <div class="tl-rail"><div class="tl-rail-fill" id="tlFill"></div></div>
+        <div class="tl-stops" id="tlStops"></div>
+        <div class="tl-thumb" id="tlThumb"><span class="tl-thumb-year" id="tlThumbYear">1945</span></div>
+      </div>
+      <button class="tl-arrow" id="tlNext" aria-label="Next era">›</button>
+    </div>
+    <div class="tl-caption" id="tlCaption">Post-War Boom · Autumn, 1945</div>
+  </div>
+
+  <!-- Top-right cluster -->
+  <div id="topright">
+    <button class="ico" id="btnPhoto" title="Photo mode (P)" aria-label="Photo mode">
+      <svg viewBox="0 0 24 24"><path d="M4 8h3l1.6-2.2A2 2 0 0 1 10.2 5h3.6a2 2 0 0 1 1.6.8L17 8h3a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z"/><circle cx="12" cy="14" r="3.6"/></svg>
+    </button>
+    <button class="ico" id="btnGhost" title="Ghost overlay — see the previous era (G)" aria-label="Ghost overlay">
+      <svg viewBox="0 0 24 24"><path d="M12 2.6c-4 0-7 3.1-7 7v11.3l2.4-1.8 2.3 1.8 2.3-1.8 2.3 1.8 2.3-1.8 2.4 1.8V9.6c0-3.9-3-7-7-7z"/><circle cx="9.6" cy="10" r="1.2" fill="#0b0d12"/><circle cx="14.4" cy="10" r="1.2" fill="#0b0d12"/></svg>
+    </button>
+    <button class="ico" id="btnCodex" title="Codex &amp; secrets (C)" aria-label="Codex">
+      <svg viewBox="0 0 24 24"><path d="M5 3.5h9.5A3.5 3.5 0 0 1 18 7v13.5H8.5A3.5 3.5 0 0 1 5 17z"/><path d="M8.5 20.5A3.5 3.5 0 0 1 8.5 13.5H18"/></svg>
+      <i class="badge" id="codexBadge">0</i>
+    </button>
+    <button class="ico" id="btnAudio" title="Mute (M)" aria-label="Toggle audio">
+      <svg viewBox="0 0 24 24" id="audioOn"><path d="M4 9.5h3.4L12 5.4v13.2L7.4 14.5H4z"/><path d="M15.6 8.6a4.8 4.8 0 0 1 0 6.8M18.3 6a8.6 8.6 0 0 1 0 12" fill="none" stroke-width="1.8"/></svg>
+      <svg viewBox="0 0 24 24" id="audioOff" class="hidden"><path d="M4 9.5h3.4L12 5.4v13.2L7.4 14.5H4z"/><path d="M16 9.5l5 5m0-5l-5 5" fill="none" stroke-width="2"/></svg>
+    </button>
+    <button class="ico" id="btnMenu" title="Menu (Esc)" aria-label="Menu">
+      <svg viewBox="0 0 24 24"><path d="M3.5 6.5h17M3.5 12h17M3.5 17.5h17" fill="none" stroke-width="2"/></svg>
+    </button>
+  </div>
+
+  <!-- World markers: rings on findable things, chevrons to leads off-screen -->
+  <canvas id="markers" aria-hidden="true"></canvas>
+
+  <!-- Compass + minimap -->
+  <div id="navcluster">
+    <div id="minimap"><canvas id="minimapCanvas" width="188" height="188"></canvas>
+      <div class="mm-label" id="mmLabel">5TH &amp; VINE</div>
+    </div>
+  </div>
+
+  <!-- Interaction prompt -->
+  <div id="prompt" class="hidden">
+    <div class="prompt-ring"><span id="promptKey">E</span></div>
+    <div class="prompt-text"><b id="promptTitle">Look</b><span id="promptSub"></span></div>
+  </div>
+
+  <!-- Toast / discovery -->
+  <div id="toasts"></div>
+
+  <!-- Subtitle / narration -->
+  <div id="subtitle" class="hidden"><span id="subtitleText"></span></div>
+
+  <!-- Crosshair -->
+  <div id="reticle"><i></i></div>
+
+  <!-- Era info card (bottom-left) -->
+  <div id="eracard">
+    <div class="ec-year" id="ecYear">1945</div>
+    <div class="ec-body">
+      <div class="ec-name" id="ecName">Post-War Boom</div>
+      <div class="ec-fact" id="ecFact"></div>
+    </div>
+  </div>
+
+  <!-- Touch controls -->
+  <div id="touch" class="hidden">
+    <div id="stickL" class="stick"><i class="stick-base"></i><i class="stick-nub"></i></div>
+    <div id="touchBtns">
+      <button class="tbtn tbtn-run" id="tbtnRun" aria-label="Sprint">RUN</button>
+      <button class="tbtn tbtn-act" id="tbtnAct" aria-label="Interact">◎</button>
+      <button class="tbtn tbtn-sense" id="tbtnSense" aria-label="Look around">◉</button>
+      <button class="tbtn tbtn-jump" id="tbtnJump" aria-label="Jump">⤒</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════ PHOTO MODE BAR ══════════════════════════ -->
+<div id="photobar" class="hidden">
+  <div class="pb-row">
+    <div class="pb-group">
+      <label>Film</label>
+      <div class="chips" id="pbFilm"></div>
+    </div>
+    <div class="pb-group">
+      <label>Focal <i id="pbFovVal">50mm</i></label>
+      <input type="range" id="pbFov" min="14" max="120" value="50" />
+    </div>
+    <div class="pb-group">
+      <label>Depth <i id="pbDofVal">off</i></label>
+      <input type="range" id="pbDof" min="0" max="100" value="0" />
+    </div>
+    <div class="pb-group">
+      <label>Exposure <i id="pbExpVal">0.0</i></label>
+      <input type="range" id="pbExp" min="-100" max="100" value="0" />
+    </div>
+    <div class="pb-group pb-toggles">
+      <button class="chip" id="pbHideUI">Hide UI</button>
+      <button class="chip" id="pbGrid">Grid</button>
+      <button class="chip chip-go" id="pbShoot">Shoot ⏎</button>
+      <button class="chip" id="pbExit">Exit P</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════ MENU / SETTINGS ══════════════════════════ -->
+<div id="menu" class="screen hidden">
+  <div class="panel">
+    <header class="panel-head">
+      <h2 id="menuTitle">Paused</h2>
+      <button class="x" id="menuClose" aria-label="Close">✕</button>
+    </header>
+    <nav class="tabs" id="menuTabs">
+      <button class="tab is-on" data-tab="play">Play</button>
+      <button class="tab" data-tab="video">Visuals</button>
+      <button class="tab" data-tab="ctrl">Controls</button>
+      <button class="tab" data-tab="access">Access</button>
+      <button class="tab" data-tab="about">About</button>
+    </nav>
+
+    <section class="tabpane is-on" data-pane="play">
+      <div class="row"><button class="btn btn-primary wide" id="mnResume">Resume</button></div>
+      <div class="row"><button class="btn wide" id="mnTour">Start guided tour</button></div>
+      <div class="row"><button class="btn wide" id="mnCodex">Open codex &amp; secrets</button></div>
+      <div class="row split">
+        <button class="btn" id="mnReset">Reset position</button>
+        <button class="btn" id="mnFly">Toggle free-fly</button>
+      </div>
+      <div class="row">
+        <label class="lbl">Time of day <i id="todVal">14:20</i></label>
+        <input type="range" id="setTod" min="0" max="1440" value="860" />
+      </div>
+      <div class="row">
+        <label class="lbl">Weather <i id="wxVal">era default</i></label>
+        <div class="chips" id="setWx"></div>
+      </div>
+      <div class="row danger"><button class="btn btn-quiet" id="mnWipe">Erase saved progress</button></div>
+    </section>
+
+    <section class="tabpane" data-pane="video">
+      <div class="row">
+        <label class="lbl">Quality preset</label>
+        <div class="chips" id="setQuality"></div>
+      </div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setShadows" checked><span></span>Dynamic shadows</label></div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setBloom" checked><span></span>Bloom &amp; light glare</label></div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setSSAO" checked><span></span>Contact shadows (SSAO)</label></div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setGrain" checked><span></span>Film grain &amp; era grade</label></div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setCA" checked><span></span>Lens distortion &amp; aberration</label></div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setRefl" checked><span></span>Wet-street reflections</label></div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setCrowd" checked><span></span>Dense crowds &amp; traffic</label></div>
+      <div class="row">
+        <label class="lbl">Render scale <i id="rsVal">100%</i></label>
+        <input type="range" id="setRes" min="50" max="130" value="100" />
+      </div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setFps"><span></span>Show performance stats</label></div>
+    </section>
+
+    <section class="tabpane" data-pane="ctrl">
+      <div class="row">
+        <label class="lbl">Look sensitivity <i id="sensVal">1.00</i></label>
+        <input type="range" id="setSens" min="20" max="300" value="100" />
+      </div>
+      <div class="row">
+        <label class="lbl">Field of view <i id="fovVal">72°</i></label>
+        <input type="range" id="setFov" min="55" max="105" value="72" />
+      </div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setLock"><span></span>Capture the mouse pointer (classic FPS look)</label></div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setInvert"><span></span>Invert vertical look</label></div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setBob" checked><span></span>View bob while walking</label></div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setSticky" checked><span></span>Touch: sticky sprint toggle</label></div>
+      <div class="row">
+        <label class="lbl">Touch stick size <i id="stickVal">100%</i></label>
+        <input type="range" id="setStick" min="70" max="150" value="100" />
+      </div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setLefty"><span></span>Left-handed touch layout</label></div>
+      <div class="keymap" id="keymap"></div>
+    </section>
+
+    <section class="tabpane" data-pane="access">
+      <div class="row"><label class="sw"><input type="checkbox" id="setReduceMotion"><span></span>Reduce motion (calmer camera &amp; transitions)</label></div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setNoFlash"><span></span>Reduce flashing (neon, lightning, time-warp)</label></div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setBigUI"><span></span>Larger interface</label></div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setHighContrast"><span></span>High-contrast interface</label></div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setSubs" checked><span></span>Narration subtitles</label></div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setGuide" checked><span></span>Show interaction prompts</label></div>
+      <div class="row"><label class="sw"><input type="checkbox" id="setWaypoint" checked><span></span>Highlight undiscovered secrets faintly</label></div>
+      <div class="row">
+        <label class="lbl">Master volume <i id="volVal">80%</i></label>
+        <input type="range" id="setVol" min="0" max="100" value="80" />
+      </div>
+      <div class="row">
+        <label class="lbl">Music <i id="musVal">55%</i></label>
+        <input type="range" id="setMus" min="0" max="100" value="55" />
+      </div>
+    </section>
+
+    <section class="tabpane" data-pane="about">
+      <div class="about">
+        <p><b>THE BLOCK</b> is a single street corner rendered six times over — 1945, 1965, 1985, 2005, 2025 and 2055 — and every version is generated in code at load time. No downloaded models, no photographs, no audio files: the bricks, the neon, the sedans, the pedestrians, the swing band on the radio and the hum of a 2055 delivery drone are all synthesised in your browser.</p>
+        <p>The buildings persist across time. The theatre becomes a cinema becomes a video store becomes a gym becomes an archive. Paint layers up and peels back. Look for the details that survive all six eras — somebody left something in the wall in 1945.</p>
+        <p class="about-tech">three.js · WebGL2 · Web Audio · procedural geometry &amp; texturing</p>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- ══════════════════════════ CODEX ══════════════════════════ -->
+<div id="codex" class="screen hidden">
+  <div class="panel panel-wide">
+    <header class="panel-head">
+      <h2>Codex</h2>
+      <div class="codex-count"><b id="cxFound">0</b> / <span id="cxTotal">0</span> discovered</div>
+      <button class="x" id="codexClose" aria-label="Close">✕</button>
+    </header>
+    <nav class="tabs" id="codexTabs">
+      <button class="tab is-on" data-cx="secrets">Secrets</button>
+      <button class="tab" data-cx="threads">Threads</button>
+      <button class="tab" data-cx="places">Places</button>
+    </nav>
+    <section class="tabpane is-on" data-cxpane="secrets"><div class="cx-grid" id="cxSecrets"></div></section>
+    <section class="tabpane" data-cxpane="threads"><div class="cx-threads" id="cxThreads"></div></section>
+    <section class="tabpane" data-cxpane="places"><div class="cx-grid" id="cxPlaces"></div></section>
+  </div>
+</div>
+
+<!-- ══════════════════════════ READER (signs, plaques, docs) ══════════════════════════ -->
+<div id="reader" class="screen hidden">
+  <div class="panel panel-read">
+    <header class="panel-head">
+      <h2 id="readerTitle">—</h2>
+      <button class="x" id="readerClose" aria-label="Close">✕</button>
+    </header>
+    <div class="read-body" id="readerBody"></div>
+    <div class="read-foot" id="readerFoot"></div>
+  </div>
+</div>
+
+<div id="fps" class="hidden"></div>
+<div id="flash"></div>
+<div id="rotatehint" class="hidden"><div>↻ &nbsp;Turn sideways for the wide view</div></div>
+
+<noscript>
+  <div class="screen" style="display:grid;place-items:center">
+    <div style="max-width:34rem;padding:2rem;text-align:center;color:#e9edf5">
+      <h1>THE BLOCK</h1>
+      <p>This is a real-time 3D experience and needs JavaScript and WebGL enabled.</p>
+    </div>
+  </div>
+</noscript>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
